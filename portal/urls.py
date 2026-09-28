@@ -1,0 +1,24 @@
+from django.urls import path
+from . import views
+urlpatterns = [
+    path('',views.dashboard,name='dashboard'),path('login/',views.sign_in,name='login'),path('logout/',views.sign_out,name='logout'),
+    path('profile/',views.profile,name='profile'),path('password/',views.password_change,name='password_change'),
+    path('team/',views.team,name='team'),path('team/new/',views.team_edit,name='team_new'),path('team/<int:user_id>/',views.team_edit,name='team_edit'),
+    path('requests/',views.requests_list,name='requests'),path('requests/new/',views.new_request,name='new_request'),
+    path('queue/',views.queue,name='queue'),path('requests/<uuid:req_id>/claim/',views.claim,name='claim'),
+    path('requests/<uuid:req_id>/',views.request_detail,name='request_detail'),
+    path('requests/<uuid:req_id>/message/',views.request_message,name='request_message'),
+    path('requests/<uuid:req_id>/status/',views.status_change,name='status_change'),
+    path('requests/<uuid:req_id>/quote/',views.quote_create,name='quote_create'),
+    path('requests/<uuid:req_id>/quote/<uuid:quote_id>/approval/',views.quote_approval,name='quote_approval'),
+    path('requests/<uuid:req_id>/quote/<uuid:quote_id>/pdf/',views.quote_download,name='quote_download'),
+    path('files/<uuid:file_id>/',views.attachment_download,name='attachment'),
+    path('notifications/',views.notification_list,name='notifications'),path('notifications/read/',views.read_notifications,name='notifications_read'),
+    path('api/notifications/',views.notification_count,name='notification_count'),
+    path('api/assistant/<uuid:draft_id>/',views.assistant,name='assistant'),
+    path('api/requests/<uuid:req_id>/updates/',views.request_updates,name='request_updates'),
+    path('api/push/config/',views.push_config),path('api/push/subscribe/',views.push_subscribe),path('api/push/unsubscribe/',views.push_unsubscribe),
+    path('accounting/',views.finance,name='finance'),path('accounting/file/',views.financial_attachment,name='financial_attachment'),
+    path('operations/',views.operations,name='operations'),path('mail/',views.mail_review,name='mail_review'),
+    path('health/',views.health),path('manifest.webmanifest',views.manifest),path('service-worker.js',views.service_worker),
+]
