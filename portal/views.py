@@ -443,7 +443,7 @@ def health(request):
 
 @require_GET
 def manifest(request):
-    return JsonResponse({'name':'HelloSama | Sama Tours','short_name':'HelloSama','start_url':'/','scope':'/',
+    return JsonResponse({'name':'HelloSama Corporate Portal | Sama Tours','short_name':'HelloSama','start_url':'/','scope':'/',
         'display':'standalone','background_color':'#ffffff','theme_color':'#163e64',
         'icons':[{'src':'/static/brand/icon.svg','sizes':'any','type':'image/svg+xml','purpose':'any'}]},content_type='application/manifest+json')
 
