@@ -20,12 +20,12 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_GET
 from . import workflow
-from .accounting import AccountingUnavailable, bridge_call, sync_companies
+from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
 from .ai import AssistantUnavailable, generate
 from .auth import allow_attempt
 from .fields import cipher
 from .files import save_attachment, read_upload
-from .forms import LoginForm, ProfileForm, TeamForm, RequestForm, QuoteForm
+from .forms import LoginForm, ProfileForm, TeamForm, CompanyOwnerForm, RequestForm, QuoteForm
 from .models import (User, Company, TravelRequest, Quote, Approval, Attachment, Draft, Audit, Message,
     Notification, Delivery, AIBudget, AICall, WorkerState, PushSubscription, MailReview)
 from .notifications import safe_push_endpoint
@@ -180,6 +180,22 @@ def request_detail(request,req_id):
         'can_cancel':submit and req.status not in ('booking','confirmed','closed','cancelled')})
 
 @login_required
+def request_files(request,req_id):
+    req=get_object_or_404(visible_requests(request.user),pk=req_id)
+    files=req.attachments.select_related('request', 'message', 'uploaded_by').order_by('-created_at')
+    work=can_work(request.user,req)
+    if not work:
+        files=files.filter(internal=False).exclude(message__internal=True)
+        if not can_submit_quote(request.user,req): files=files.filter(sensitive=False)
+    files=list(files)
+    passport_files=list(req.requester.passport_files.select_related('uploaded_by').order_by('-created_at')) if can_view_passport(request.user,req.requester,req) else None
+    return render(request,'portal/request_files.html',{'page_title':'Files & documents', 'req':req,
+        'images':[a for a in files if a.content_type.startswith('image/')],
+        'documents':[a for a in files if not a.content_type.startswith('image/')],
+        'passport_files':passport_files,'show_passport':passport_files is not None,
+        'quotes':req.quotes.all(), 'file_count':len(files)})
+
+@login_required
 @require_POST
 def request_message(request,req_id):
     get_object_or_404(visible_requests(request.user),pk=req_id)
@@ -245,8 +261,11 @@ def attachment_download(request,file_id):
     try:
         with attachment.file.open('rb') as stream: data=cipher().decrypt(stream.read())
     except (FileNotFoundError,OSError): raise Http404()
-    Audit.objects.create(actor=request.user,action='file_download',target=str(attachment.pk))
-    return FileResponse(BytesIO(data),as_attachment=True,filename=attachment.name,content_type=attachment.content_type)
+    preview=request.GET.get('preview')=='1' and attachment.content_type in ('image/jpeg','image/png')
+    Audit.objects.create(actor=request.user,action='file_preview' if preview else 'file_download',target=str(attachment.pk))
+    response=FileResponse(BytesIO(data),as_attachment=not preview,filename=attachment.name,content_type=attachment.content_type)
+    response['X-Content-Type-Options']='nosniff'
+    return response
 
 @login_required
 def profile(request):
@@ -273,6 +292,33 @@ def password_change(request):
     if request.method=='POST' and form.is_valid():
         user=form.save();update_session_auth_hash(request,user);messages.success(request,'Password updated.');return redirect('profile')
     return render(request,'portal/form.html',{'page_title':'Change password','heading':'Keep your account secure.','form':form,'button':'Update password'})
+
+@login_required
+def companies(request):
+    if not is_ceo(request.user): raise PermissionDenied()
+    qs=Company.objects.prefetch_related('users').order_by('name')
+    if request.GET.get('q'):
+        query=request.GET['q'][:100]
+        qs=qs.filter(Q(name__icontains=query)|Q(account_number__icontains=query))
+    page=Paginator(qs,25).get_page(request.GET.get('page'))
+    for company in page:
+        company.owner=next((u for u in company.users.all() if u.is_primary),None)
+    return render(request,'portal/companies.html',{'page_title':'Company accounts','page':page})
+
+@login_required
+@sensitive_post_parameters('password')
+def company_create(request):
+    if not is_ceo(request.user): raise PermissionDenied()
+    form=CompanyOwnerForm(request.POST or None)
+    if request.method=='POST' and form.is_valid():
+        try:
+            owner=create_company_owner(request.user,form.cleaned_data)
+            messages.success(request,f'{owner.company.name} is connected. Owner login ID: {owner.username}. The same password works in both portals. The owner will complete their passport and contact details on first sign-in.')
+            return redirect('companies')
+        except (ValidationError,AccountingUnavailable) as exc:
+            form.add_error(None,str(exc) if isinstance(exc,AccountingUnavailable) else exc)
+    return render(request,'portal/company_create.html',{'page_title':'Create company owner','form':form,
+        'accounting_enabled':settings.ACCOUNTING_ENABLED})
 
 @login_required
 def team(request):

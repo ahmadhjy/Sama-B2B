@@ -50,7 +50,25 @@ with sync_playwright() as p:
     page.wait_for_url(re.compile(r'.*/requests/[0-9a-f-]+/$'))
     request_url=page.url
     reference=page.locator('.request-page-heading p').inner_text().split(' · ')[0].strip()
+    page.locator('input[name="attachments"]').set_input_files([
+        {'name':'journey-notes.pdf','mimeType':'application/pdf','buffer':b'%PDF-1.4 FICTIONAL BROWSER TEST'},
+        {'name':'sama-travel-image.png','mimeType':'image/png','buffer':(ROOT/'static/brand/logo.png').read_bytes()},
+    ])
+    page.locator('#message-body').fill('Files for this demonstration journey.')
+    page.get_by_role('button',name='Send ↑',exact=True).click();page.wait_for_url(request_url)
     capture('06-submitted-conversation')
+    page.get_by_role('link',name='Files & documents',exact=True).click()
+    page.get_by_role('heading',name='Requester’s passport').wait_for()
+    page.get_by_text('journey-notes.pdf',exact=True).wait_for()
+    page.locator('.media-item img').wait_for()
+    assert page.locator('.media-item img').evaluate('(image) => image.complete && image.naturalWidth > 0')
+    capture('06a-files-desktop')
+    page.set_viewport_size({'width':390,'height':844});capture('06b-files-mobile')
+    page.set_viewport_size({'width':1440,'height':1050})
+    page.get_by_role('link',name='View in conversation',exact=False).first.click()
+    target=page.locator('.chat-message:target')
+    target.wait_for()
+    assert target.evaluate('(element) => { const a=element.getBoundingClientRect(); const b=element.parentElement.getBoundingClientRect(); return a.top >= b.top && a.top < b.bottom; }')
     sign_in('demo.sales');page.goto(BASE+'/queue/')
     row=page.get_by_role('row').filter(has_text=reference)
     row.get_by_role('button',name='Take over',exact=False).click();page.wait_for_url(request_url)
@@ -77,8 +95,9 @@ with sync_playwright() as p:
     page.set_viewport_size({'width':390,'height':844});capture('09-confirmed-mobile')
     page.set_viewport_size({'width':1440,'height':1050})
     sign_in('demo.ceo')
-    for name,url in [('10-team','/team/'),('11-operations','/operations/'),('12-accounting-unavailable','/accounting/')]:
+    for name,url in [('10-team','/team/'),('11-operations','/operations/'),('12-accounting-unavailable','/accounting/'),('13-companies','/companies/'),('14-create-owner','/companies/new/')]:
         page.goto(BASE+url);capture(name)
+    page.set_viewport_size({'width':390,'height':844});capture('15-create-owner-mobile')
     browser.close()
 
 (OUTPUT/'browser-results.json').write_text(json.dumps({'errors':errors,'journey':'submitted → claimed → quoted → 3 approvals → booking → confirmed','request_url':request_url},indent=2))

@@ -2,7 +2,9 @@
 
 ## Access and people
 
-Creating/enabling a client portal account in accounting gives that company a linked HelloSama account. The existing account number and password are used centrally. Passwords are never displayed or stored in readable form. First and last name, email, mobile with country code, passport number/expiry and nationality must be complete for company users. A passport copy is optional by default; enable `REQUIRE_PASSPORT_COPY` if the business requires it.
+Creating/enabling a client portal account in accounting gives that company a linked HelloSama account. The existing account number and password are used centrally. Passwords are never displayed or stored in readable form. First and last name, email, mobile with country code, passport number/expiry and nationality must be complete for company users. A passport copy (PDF, JPG or PNG) is mandatory before a company user can start a request. Missing details or a missing copy lead to the profile completion screen; Sama staff do not need passport documents.
+
+Sama CEOs can also open **Company accounts → Create company owner** in HelloSama. Enter an existing accounting client code, the owner's first and last name, and choose whether to create a new shared login or connect an existing one. New logins are created in accounting immediately and linked back to HelloSama. Existing logins require their current password and are never overwritten. The company name is read from accounting, so its statements, invoices and receipts use the correct client. Add a new customer's client record in accounting first; their portal login can then be created from either dashboard. This screen requires the accounting connection to be configured. A login provisioned by the background sync is reused, not duplicated.
 
 Company administrators create team users with first name, last name and password. Login IDs are generated automatically and displayed after creation. Optional details can be filled by the administrator or completed by the user at first sign-in. Share initial credentials through your approved private channel. Users can change individual passwords. The primary company password remains managed by accounting.
 
@@ -36,6 +38,8 @@ Quote revisions always create a new version and need fresh approvals. Expired qu
 
 Both sides can attach PDF, JPG or PNG files, up to five files per message and 10 MB per file. These defaults intentionally exclude executable files and Office macros. Passport numbers, private traveller details and file contents are encrypted at rest by the application. Downloads require current permissions; there is no public uploads URL.
 
+Open **Files & documents** within any request to see its images, documents and every quotation version. The requester's profile passport is included for authorized viewers. Files stay attached to their original chat messages, with a **View in conversation** link back to the message. Image previews and downloads use the same permissions, and private pages are not cached.
+
 Mark traveller/passport attachments as private. Approvers do not automatically receive passport access. Sama internal notes are visible only to the current assignee and CEO. After reassignment, the previous salesperson loses request/file access.
 
 ## Notifications and correspondence
@@ -54,7 +58,7 @@ The monthly allowance is shared across the entire application and capped at $20.
 
 ## Business defaults to review during live testing
 
-- Passport copy optional; number, expiry, nationality, email and mobile mandatory for company profiles.
+- Passport copy, number, expiry, nationality, email and mobile are mandatory for company profiles.
 - Requesters who are designated approvers may approve their own request unless disabled in configuration.
 - All company approvers must approve each version; no majority rule or automatic bypass.
 - PDF/JPG/PNG only, 10 MB per file, five per message.

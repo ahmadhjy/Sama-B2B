@@ -56,11 +56,9 @@ class User(AbstractUser):
     def profile_complete(self):
         if self.is_sama:
             return bool(self.first_name and self.last_name and self.email)
-        from django.conf import settings
         completed = all([self.first_name, self.last_name, self.email, self.phone, self.passport_number, self.passport_expiry, self.nationality])
         completed = completed and self.passport_expiry > timezone.localdate()
-        if settings.REQUIRE_PASSPORT_COPY:
-            completed = completed and self.passport_files.exists()
+        completed = completed and self.passport_files.exists()
         return bool(completed)
 
 class Draft(models.Model):

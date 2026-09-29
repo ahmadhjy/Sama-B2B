@@ -100,7 +100,6 @@ SMS_ALLOW_HTTP = flag('SMS_ALLOW_HTTP', False)
 NOTIFICATION_TEST_MODE = flag('NOTIFICATION_TEST_MODE', True)
 NOTIFICATION_TEST_EMAILS = [v.strip().lower() for v in env('NOTIFICATION_TEST_EMAILS', 'info@hellosama.com').split(',') if v.strip()]
 NOTIFICATION_TEST_PHONES = [v.strip() for v in env('NOTIFICATION_TEST_PHONES').split(',') if v.strip()]
-REQUIRE_PASSPORT_COPY = flag('REQUIRE_PASSPORT_COPY', False)
 ALLOW_SELF_APPROVAL = flag('ALLOW_SELF_APPROVAL', True)
 if not DEBUG:
     if SECRET_KEY == 'local-development-only-hellosama' or len(SECRET_KEY) < 40:

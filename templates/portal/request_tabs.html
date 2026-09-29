@@ -1,0 +1,4 @@
+<nav class="tab-nav request-tabs" aria-label="Request sections">
+  <a href="{% url 'request_detail' req.pk %}" {% if request.resolver_match.url_name == 'request_detail' %}class="active" aria-current="page"{% endif %}>Conversation</a>
+  <a href="{% url 'request_files' req.pk %}" {% if request.resolver_match.url_name == 'request_files' %}class="active" aria-current="page"{% endif %}>Files & documents</a>
+</nav>

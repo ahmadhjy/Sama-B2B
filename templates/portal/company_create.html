@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><a class="back-link" href="{% url 'companies' %}">← Company accounts</a><span class="eyebrow">WELCOME A COMPANY</span><h1>Create a company owner</h1><p>One client code, one company login for HelloSama and the accounting portal.</p></div></div>
+<div class="company-create-layout">
+  <section class="card form-card">
+    {% if not accounting_enabled %}<div class="inline-notice">The accounting connection is not configured in this environment yet. You can preview this form; creating a linked account becomes available after the connection is set up.</div>{% endif %}
+    <form method="post">{% csrf_token %}{% include 'portal/form_fields.html' %}<div class="form-actions"><a class="button secondary" href="{% url 'companies' %}">Cancel</a><button class="button primary" type="submit" {% if not accounting_enabled %}disabled{% endif %}>Create / connect owner</button></div></form>
+  </section>
+  <aside class="card compact"><h2>How the link works</h2><ol class="account-steps"><li>Enter the client code from Sama Accounting. The company name is matched automatically.</li><li>Create their shared login here, or connect their existing login using its current password.</li><li>The owner signs in with the client code, completes their profile and passport copy, then invites their team.</li></ol><p class="small muted">An existing password is never overwritten here. Password resets and disabling the main company login in accounting continue to apply to HelloSama.</p><p class="small muted">For a new customer, create their client record in accounting first. You can then create their portal login from either dashboard.</p></aside>
+</div>
+{% endblock %}

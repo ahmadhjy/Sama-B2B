@@ -8,9 +8,11 @@ Use a fictional test company first. This checklist is for the configured PythonA
 - The new database is separate from accounting. `check --deploy` passes.
 - The worker heartbeat advances, and its last sync shows no error.
 - Create/enable a company in accounting. It appears in HelloSama within 60 seconds and signs in with the same account/password.
+- Add a second client record in accounting without enabling its portal login. From HelloSama as Sama CEO, create its owner using that client code. Check the same credentials in both portals and verify the correct financial records. Repeat sync: no duplicate owner/company appears.
+- Connect an existing portal login using its current password; a wrong password must not reset it. A missing client code, disabled login or duplicate local company must produce a clear error without creating a partial account.
 - Change its password in accounting. The old password no longer works; an existing primary session is invalidated within 60 seconds.
 - Disable the accounting portal account. Both the primary user and company employees lose access within the verification window.
-- Create a company user with first name, last name, password. Complete their profile at first sign-in.
+- Create a company user with first name, last name, password. Complete their profile at first sign-in, including a passport copy. Starting or submitting a request without that copy must be blocked.
 - A second company cannot access the first company's request, file, quote PDF or financial record by URL.
 
 ## Requests and approvals
@@ -19,7 +21,7 @@ Use a fictional test company first. This checklist is for the configured PythonA
 - Two Sama sales users attempt to take over the same request. Only one succeeds.
 - The assignee can view the profile/documents; the other salesperson cannot.
 - CEO reassigns the request; the previous assignee loses access.
-- Both parties upload a PDF and an image. Downloads work for authorized users.
+- Both parties upload a PDF and an image. Check Files & documents: images, PDFs, quotations and the requester passport appear in their groups. Open a preview, download a file, and use View in conversation to return to its message. Other companies, unassigned sales and unauthorized approvers must not see restricted files.
 - Internal notes never appear to the client. Approvers cannot access private passport files solely through approval permission.
 - The quote appears in the conversation, and its PDF accurately matches the version and price.
 - Submit to two approvers of different roles. First approval leaves it pending. Second approval makes it Approved.
@@ -44,5 +46,5 @@ Use a fictional test company first. This checklist is for the configured PythonA
 
 - Run the one-command update and confirm web app reload, worker restart, and preserved uploads/configuration/data.
 - Back up and restore the test database and encrypted documents with the saved encryption key.
-- Agree passport-copy, self-approval and data-retention settings before inviting real clients.
+- Confirm mandatory passport copies and agree self-approval and data-retention settings before inviting real clients.
 - Confirm the provider-approved SMS sender, transport, balance and delivery reports from PythonAnywhere itself.

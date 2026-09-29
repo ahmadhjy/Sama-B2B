@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from portal.models import User,Company,Draft,TravelRequest,Message,Quote,Approval
+from portal.demo import ensure_demo_passport
 
 class Command(BaseCommand):
     help='Create fictional local demonstration data. Refuses to run in production or send real notifications.'
@@ -17,10 +18,12 @@ class Command(BaseCommand):
         password=options.get('password') or secrets.token_urlsafe(15)
         company=Company.objects.create(account_number='DEMO-100',name='Cedar & Co.')
         def user(username,first,last,role,company=None,approve=False):
-            return User.objects.create_user(username=username,password=password,first_name=first,last_name=last,
+            member = User.objects.create_user(username=username,password=password,first_name=first,last_name=last,
                 email=username+'@example.com',phone='+96170000000',passport_number='DEMO12345',
                 passport_expiry=timezone.localdate()+timedelta(days=900),nationality='Lebanese',
                 role=role,company=company,can_approve=approve)
+            ensure_demo_passport(member)
+            return member
         owner=user('demo.owner','Nour','Haddad','owner',company,True)
         requester=user('demo.requester','Rami','Khoury','requester',company)
         approver=user('demo.approver','Karim','Mansour','accountant',company,True)

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading request-page-heading">
+  <div><a class="back-link" href="{% url 'requests' %}">← All requests</a><h1>{{ req.title }}</h1><p>{{ req.reference }} <span>·</span> {{ req.company.name }}</p></div>
+  <span class="badge large {{ req.status }}">{{ req.get_status_display }}</span>
+</div>
+{% include 'portal/request_tabs.html' %}
+<div class="page-heading files-heading"><div><h2>Everything for this journey</h2><p>Conversation files and quotation versions, together in one place.</p></div>{% if req.status != 'closed' and req.status != 'cancelled' %}<a class="button secondary" href="{% url 'request_detail' req.pk %}#message-body">＋ Attach in conversation</a>{% endif %}</div>
+<div class="files-layout">
+  <div>
+    <section class="card file-section" aria-labelledby="images-heading">
+      <div class="card-heading"><h2 id="images-heading">Images <span class="muted">{{ images|length }}</span></h2></div>
+      <div class="media-grid">
+        {% for file in images %}
+          <article class="media-item">
+            <a href="{% url 'attachment' file.pk %}?preview=1" target="_blank" rel="noopener" aria-label="View {{ file.name }}"><img loading="lazy" src="{% url 'attachment' file.pk %}?preview=1" alt="{{ file.name }}"></a>
+            {% include 'portal/library_file.html' %}
+          </article>
+        {% empty %}<p class="library-empty">Images shared in this conversation will appear here.</p>{% endfor %}
+      </div>
+    </section>
+    <section class="card file-section section-gap" aria-labelledby="documents-heading">
+      <div class="card-heading"><h2 id="documents-heading">Documents <span class="muted">{{ documents|length }}</span></h2></div>
+      <div class="library-documents">{% for file in documents %}{% include 'portal/library_file.html' %}{% empty %}<p class="library-empty">No documents shared yet. Attach a PDF in the conversation to add it here.</p>{% endfor %}</div>
+    </section>
+  </div>
+  <aside>
+    {% if show_passport %}
+    <section class="card compact passport-library" aria-labelledby="passport-heading">
+      <span class="eyebrow">PRIVATE TRAVEL DOCUMENT</span><h2 id="passport-heading">Requester’s passport</h2>
+      <p class="small muted">{{ req.requester.label }} · Saved in their profile. Available only to authorized people handling this request.</p>
+      {% for file in passport_files %}{% include 'portal/library_file.html' with passport=True %}{% empty %}<div class="inline-notice">No passport copy is saved for this earlier request. The requester must upload one in their profile before starting another request.</div>{% endfor %}
+    </section>
+    {% endif %}
+    <section class="card compact section-gap" aria-labelledby="quotations-heading">
+      <span class="eyebrow">OFFERS & REVISIONS</span><h2 id="quotations-heading">Quotations</h2>
+      {% for quote in quotes %}<a class="library-file" href="{% url 'quote_download' req.pk quote.pk %}"><span class="document-symbol" aria-hidden="true">PDF</span><div><strong>{{ quote.reference }}</strong><small>{{ quote.amount|floatformat:2 }} {{ quote.currency }} · {% if quote.superseded %}Superseded{% else %}Latest version{% endif %}</small></div><span aria-hidden="true">↓</span></a>{% empty %}<p class="small muted">Your quotations will appear here when Sama shares an offer.</p>{% endfor %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

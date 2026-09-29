@@ -1,6 +1,6 @@
 # HelloSama
 
-An English B2B travel portal for Sama Tours. Separate Django application and PostgreSQL database, connected to the existing accounting system through a signed, read-only integration.
+An English B2B travel portal for Sama Tours. Separate Django application and PostgreSQL database, connected to the existing accounting system through a signed integration for shared company logins and read-only financial records.
 
 ## Start here
 

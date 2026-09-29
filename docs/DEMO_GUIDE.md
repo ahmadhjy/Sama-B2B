@@ -16,7 +16,7 @@ Open http://127.0.0.1:8765/login/ and use the private `.demo-access.txt` file in
 - `demo.horizon.owner`, `demo.horizon.sales`, `demo.horizon.hr`: Horizon Consulting's administrator, requester and HR approver.
 - `demo.atlas.owner`, `demo.atlas.sales`, `demo.atlas.finance`: Atlas Medical's administrator, requester and finance approver.
 
-All company profiles are complete with fictional values. These are local demonstration records, not financial accounts in Sama Accounting.
+All company profiles are complete with fictional values and clearly marked placeholder passport PDFs. These are local demonstration records, not financial accounts in Sama Accounting.
 
 ## Suggested screenshots
 
@@ -29,6 +29,8 @@ All company profiles are complete with fictional values. These are local demonst
 7. **Request queue as `demo.sales`:** enquiries ready for a salesperson to take over.
 8. **Plan a new trip as `demo.owner` or `demo.requester`:** prefilled assistant conversation beside an editable request summary.
 9. **Overview as `demo.ceo`:** visibility across three fictional companies.
+10. **Files & documents inside a request:** organized attachments, quotations and the requester passport.
+11. **Company accounts → Create company owner as `demo.ceo`:** the new onboarding form. The local demo connection is disabled, so this form is a preview until accounting is configured.
 
 The showcase adds 18 requests covering every status, six sample attachments and four planning conversations. Earlier local demo and testing records are preserved.
 

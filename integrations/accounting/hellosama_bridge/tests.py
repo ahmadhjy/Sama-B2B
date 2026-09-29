@@ -87,3 +87,52 @@ class BridgeTests(TestCase):
     def test_no_financial_write_actions(self):
         self.assertEqual(self.call('delete',{'company_id':str(self.company.pk)}).status_code,404)
         self.assertTrue(Client.objects.filter(pk=self.company.pk).exists())
+
+    def test_owner_creation_enables_shared_login_for_existing_client(self):
+        client = Client.objects.create(client_code='FROMHELLO', name_en='New HelloSama client')
+        payload = {'account_number':'fromhello','password':'SharedPortalPass!8237','mode':'create'}
+        response = self.call('owner-account', payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['id'], str(client.pk))
+        self.assertEqual(response.json()['account_number'], 'FROMHELLO')
+        self.assertNotIn('password', response.json())
+        user = get_user_model().objects.get(username='FROMHELLO')
+        self.assertTrue(user.check_password(payload['password']))
+        self.assertFalse(user.is_staff or user.is_superuser)
+        self.assertEqual(self.call('authenticate', payload).status_code, 200)
+        self.assertEqual(self.call('owner-account', payload).json(), response.json())
+        self.assertEqual(get_user_model().objects.filter(username='FROMHELLO').count(), 1)
+
+    def test_link_existing_account_does_not_change_password_version(self):
+        before = self.call('status', {'company_id':str(self.company.pk)}).json()['version']
+        response = self.call('owner-account', {'account_number':'BRIDGE1','password':'PortalPass!234','mode':'link'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['version'], before)
+
+    def test_existing_password_never_overwritten_and_disabled_never_reenabled(self):
+        for mode in ('create', 'link'):
+            response = self.call('owner-account', {'account_number':'BRIDGE1','password':'DifferentPass!8393','mode':mode})
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()['error'], 'credentials_mismatch')
+        sync_portal_account(self.company, enabled=False)
+        self.assertEqual(self.call('owner-account', {'account_number':'BRIDGE1','password':'PortalPass!234','mode':'create'}).json()['error'], 'disabled_login')
+        self.assertFalse(get_user_model().objects.get(username='BRIDGE1').is_active)
+
+    def test_creation_needs_existing_client_and_valid_new_password(self):
+        payload = {'account_number':'MISSING','password':'SafeNewPass!8373','mode':'create'}
+        self.assertEqual(self.call('owner-account', payload).json()['error'], 'unknown_client')
+        company = Client.objects.create(client_code='NOTENABLED', name_en='Not enabled')
+        payload['account_number']='NOTENABLED'; payload['password']='123'
+        self.assertEqual(self.call('owner-account', payload).json()['error'], 'invalid_password')
+        payload.update(mode='link', password='SafeNewPass!8373')
+        self.assertEqual(self.call('owner-account', payload).json()['error'], 'missing_login')
+        self.assertFalse(get_user_model().objects.filter(username='NOTENABLED').exists())
+        self.assertEqual(Client.objects.get(pk=company.pk).name_en, 'Not enabled')
+
+    def test_owner_write_requires_signature_and_rejects_username_collision(self):
+        self.assertEqual(self.client.post('/hellosama-api/owner-account/', b'{}', content_type='application/json').status_code, 401)
+        Client.objects.create(client_code='TAKEN', name_en='Collision company')
+        user = get_user_model().objects.create_user(username='TAKEN', password='ExistingPass!2382', is_staff=True)
+        response = self.call('owner-account', {'account_number':'TAKEN','password':'SafeNewPass!2389','mode':'create'})
+        self.assertEqual(response.json()['error'], 'account_conflict')
+        user.refresh_from_db(); self.assertTrue(user.is_staff and user.check_password('ExistingPass!2382'))

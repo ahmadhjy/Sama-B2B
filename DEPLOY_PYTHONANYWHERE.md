@@ -161,3 +161,9 @@ Rename the HelloSama web app to the final domain using the Web tab; keep the sam
 Update `PUBLIC_URL`, `DJANGO_ALLOWED_HOSTS` and the exact `PA_WSGI_FILE` path in `.env`, then run the update command. `PUBLIC_URL` supplies CSRF trusted origins and notification links. Existing SMS/email links to the temporary domain will need a redirect web app or a fresh notification; plan that transition before removing the temporary address. Browser push subscriptions belong to the old origin and must be enabled again on the new domain.
 
 Sources: [custom PythonAnywhere subdomains](https://help.pythonanywhere.com/pages/CustomPythonAnywhereSubdomains), [Django deployment](https://help.pythonanywhere.com/pages/DeployExistingDjangoProject/), [changing a web app domain](https://help.pythonanywhere.com/pages/UsingANewDomainForExistingWebApp).
+
+## Account creation and request files in this release
+
+Install the updated accounting companion as described above when deploying this release. Sama CEOs can then use **Company accounts → Create company owner** in HelloSama with the accounting client code. A client record must exist in accounting first, but enabling its portal login can be done from either dashboard. The same code/password works in both; existing logins require their current password and are never silently reset.
+
+Every company user must upload a passport copy before starting a request. This requirement is built in; an old `REQUIRE_PASSPORT_COPY=False` environment line no longer disables it and can be removed. Local showcase users receive fictional placeholder PDFs; do not copy demo uploads to production. The new **Files & documents** request tab shares the existing encrypted private storage and needs no extra public media mapping.

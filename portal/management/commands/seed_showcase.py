@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from portal.files import save_attachment
+from portal.demo import ensure_demo_passport
 from portal.models import Approval, Company, Draft, Message, Quote, TravelRequest, User
 from portal.pdf import document
 
@@ -89,6 +90,7 @@ class Command(BaseCommand):
                     user.set_password(password)
                     user.save(update_fields=['password'])
                 people[username] = user
+                ensure_demo_passport(user)
             count = sum(self.add_trip(index, trip, people, now, today) for index, trip in enumerate(TRIPS))
             for username in ('demo.owner', 'demo.requester', 'demo.horizon.sales', 'demo.atlas.sales'):
                 self.add_draft(people[username], today)

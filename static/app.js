@@ -19,7 +19,16 @@ document.querySelectorAll('.attachment-picker input').forEach(input => input.add
 }));
 document.querySelector('#refresh-conversation')?.addEventListener('click', () => window.location.reload());
 const thread = document.querySelector('#conversation-messages');
-if (thread) thread.scrollTop = thread.scrollHeight;
+if (thread) {
+  const showMessage = () => {
+    const target = /^#message-\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
+    if (target && thread.contains(target)) {
+      thread.scrollTop += target.getBoundingClientRect().top - thread.getBoundingClientRect().top - 20;
+    } else if (!location.hash) thread.scrollTop = thread.scrollHeight;
+  };
+  showMessage();
+  window.addEventListener('hashchange', showMessage);
+}
 if (thread?.dataset.updatesUrl) {
   const indicator=document.querySelector('#conversation-refresh');
   indicator.querySelector('button').addEventListener('click',()=>window.location.reload());

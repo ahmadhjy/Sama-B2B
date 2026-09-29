@@ -1,0 +1,7 @@
+<div class="library-file-wrap">
+  <a class="library-file" href="{% url 'attachment' file.pk %}">
+    <span class="document-symbol" aria-hidden="true">{% if file.content_type == 'application/pdf' %}PDF{% else %}IMG{% endif %}</span>
+    <div><strong>{{ file.name }}</strong><small>{{ file.size|filesizeformat }} · {{ file.created_at|date:'d M Y, H:i' }}</small><small>{{ file.uploaded_by.label }}{% if file.internal %} · Sama only{% elif file.sensitive or passport %} · Private{% endif %}</small></div><span aria-hidden="true">↓</span>
+  </a>
+  {% if file.message_id %}<a class="file-message-link" href="{% url 'request_detail' req.pk %}#message-{{ file.message_id }}">View in conversation →</a>{% endif %}
+</div>

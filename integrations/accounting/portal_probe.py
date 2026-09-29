@@ -19,7 +19,7 @@ import django
 django.setup()
 from django.contrib.auth import authenticate
 from django.core.management import call_command
-from portal.accounting import sync_companies
+from portal.accounting import create_company_owner, sync_companies
 from portal.models import Company,User
 
 if fresh:call_command('migrate',interactive=False,verbosity=0)
@@ -45,5 +45,17 @@ elif stage=='restored':
     sync_companies()
     assert authenticate(username='ROUNDTRIP01',password='ChangedRoundTrip!7392') is not None
     assert authenticate(username='roundtrip.employee',password='EmployeePass!2948') is not None
+elif stage=='portal_created':
+    actor=User.objects.create_user(username='roundtrip.ceo',role='ceo')
+    owner=create_company_owner(actor,dict(account_number='roundtrip02',mode='create',first_name='Portal',
+        last_name='Owner',email='roundtrip@example.com',phone='+96170123456',password='SharedHelloPass!7492'))
+    assert owner.username=='ROUNDTRIP02' and owner.is_primary and not owner.has_usable_password()
+    assert owner.company.erp_id and owner.company.name=='Created from HelloSama'
+    assert authenticate(username='roundtrip02',password='SharedHelloPass!7492').pk==owner.pk
+    sync_companies()
+    owner.refresh_from_db()
+    assert owner.first_name=='Portal' and owner.last_name=='Owner'
+    assert Company.objects.filter(account_number='ROUNDTRIP02').count()==1
+    assert User.objects.filter(company=owner.company,is_primary=True).count()==1
 else:raise AssertionError('Unknown test stage')
 print(json.dumps({'stage':stage,'passed':True}))

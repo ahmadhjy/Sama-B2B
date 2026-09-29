@@ -25,7 +25,7 @@ from portal.permissions import visible_requests,can_work,can_attachment
 
 @override_settings(DEBUG=True,ACCOUNTING_ENABLED=False,AI_ENABLED=False,EMAIL_ENABLED=False,IMAP_ENABLED=False,
     VAPID_PRIVATE_KEY='',VAPID_PUBLIC_KEY='',PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
-    ALLOWED_HOSTS=['testserver'],REQUIRE_PASSPORT_COPY=False,NOTIFICATION_TEST_MODE=False,SMS_ENABLED=False)
+    ALLOWED_HOSTS=['testserver'],NOTIFICATION_TEST_MODE=False,SMS_ENABLED=False)
 class PortalTests(TestCase):
     def setUp(self):
         self.storage=tempfile.TemporaryDirectory()
@@ -45,9 +45,12 @@ class PortalTests(TestCase):
         self.req=self.request()
 
     def user(self,name,role,company=None,approve=False):
-        return User.objects.create_user(username=name,password='TestPass!234',first_name=name.title(),last_name='Tester',
+        member = User.objects.create_user(username=name,password='TestPass!234',first_name=name.title(),last_name='Tester',
             email=name+'@example.com',phone='+96170123456',passport_number='PA1234567',
             passport_expiry=timezone.localdate()+timedelta(days=365),nationality='Lebanese',role=role,company=company,can_approve=approve)
+        if company:
+            save_attachment(SimpleUploadedFile('profile-passport.pdf', b'%PDF-1.4 FICTIONAL TEST ONLY'), member, passport_owner=member)
+        return member
 
     def request(self,**kwargs):
         values={'reference':'HS-26-ABCDEF12','company':self.company,'requester':self.requester,'title':'Bangkok trip',

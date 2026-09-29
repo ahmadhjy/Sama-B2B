@@ -22,7 +22,7 @@ class ProfileForm(forms.ModelForm):
         if not self.instance.is_sama:
             for field in ['phone','passport_number','passport_expiry','nationality']:
                 self.fields[field].required = True
-            self.fields['passport_copy'].required = settings.REQUIRE_PASSPORT_COPY and not self.instance.passport_files.exists()
+            self.fields['passport_copy'].required = not self.instance.passport_files.exists()
         else:
             for field in ['passport_number','passport_expiry','nationality','passport_copy']:
                 del self.fields[field]
@@ -76,6 +76,35 @@ class TeamForm(forms.ModelForm):
         if self.instance.pk == getattr(self.actor, 'pk', None):
             if data.get('role', self.instance.role) != self.instance.role or data.get('is_active') is False:
                 raise forms.ValidationError('Another administrator must change your own access.')
+        return data
+
+class CompanyOwnerForm(forms.Form):
+    account_number = forms.CharField(label='Accounting client code', max_length=64,
+        help_text='The client code from Sama Accounting. For a new client, add their client record there first.')
+    mode = forms.ChoiceField(label='Company login', choices=[
+        ('create', 'Create a new company login'), ('link', 'Connect an existing accounting portal login')])
+    first_name = forms.CharField(max_length=150)
+    last_name = forms.CharField(max_length=150)
+    email = forms.EmailField(required=False, help_text='The owner can complete missing contact and passport details when signing in.')
+    phone = forms.CharField(required=False, max_length=30)
+    password = forms.CharField(strip=False, max_length=1024,
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text='New login: choose a password of at least 10 characters. Existing login: enter its current password. This does not reset existing credentials.')
+
+    clean_phone = TeamForm.clean_phone
+
+    def clean(self):
+        data = super().clean()
+        if data.get('password') and data.get('mode') == 'create':
+            password = data['password']
+            user = User(username=data.get('account_number', ''), first_name=data.get('first_name', ''),
+                        last_name=data.get('last_name', ''), email=data.get('email', ''))
+            try:
+                validate_password(password, user)
+            except forms.ValidationError as exc:
+                self.add_error('password', exc)
+            if password != password.strip():
+                self.add_error('password', 'Do not start or end the password with spaces.')
         return data
 
 class RequestForm(forms.ModelForm):

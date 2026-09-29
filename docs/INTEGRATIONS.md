@@ -4,11 +4,15 @@
 
 HelloSama has its own database and credentials for staff/company employees. The company's primary login is verified by accounting on every login; HelloSama stores an unusable local password for that account. An opaque HMAC identity version detects central password changes without transferring a password hash. The company's active status is checked with a maximum 60-second cache; if a refresh fails, access fails closed.
 
-The companion bridge implements POST-only `/hellosama-api/authenticate/`, `/companies/`, `/status/`, `/finance/` and `/file/`. Each server-to-server request has a timestamp, random nonce, body digest and HMAC-SHA256 signature. Used nonces are persisted briefly to reject replay. Keep the shared key in each app's private environment. Use HTTPS in production. Do not expose the existing broad ERP REST scaffold to client browsers.
+The companion bridge implements POST-only `/hellosama-api/authenticate/`, `/companies/`, `/status/`, `/owner-account/`, `/finance/` and `/file/`. Each server-to-server request has a timestamp, random nonce, body digest and HMAC-SHA256 signature. Used nonces are persisted briefly to reject replay. Keep the shared key in each app's private environment. Use HTTPS in production. Do not expose the existing broad ERP REST scaffold to client browsers.
 
 Financial endpoints first resolve an active company portal profile and scope all object queries to its client. Only client-visible selling data is serialized. Costs, suppliers, internal notes and arbitrary ERP object serializers are excluded. Attachments are fetched through the scoped service and then the HelloSama user's financial permission is checked. Totals from the existing accounting helpers are labelled in USD; original line/schedule currencies are shown separately.
 
 Automatic account creation uses a 60-second worker sync and immediate provisioning on first successful login. This avoids a slow external call during accounting client creation. If sync is down, the Operations heartbeat identifies it. First-time company provisioning is idempotent. Disabling a company blocks all its HelloSama users; an individual employee's access is managed in HelloSama.
+
+The narrowly scoped `owner-account` action lets a signed HelloSama server request create portal credentials for an existing accounting client code. The HelloSama screen and service require the Sama CEO role. Accounting locks the client record, checks password rules and username conflicts, and returns only the normal company identity response. It does not create financial client records, reset existing passwords, re-enable disabled accounts, or accept arbitrary user/financial fields. Connecting an existing login verifies its current password. Repeating the same request after a lost response reuses that login. HelloSama records the administrator action without credentials. A background sync and simultaneous first login share the same single primary owner record.
+
+Both dashboards therefore manage the same primary identity, with accounting as the credential authority. Company employees and profile details are managed in HelloSama. Company password resets and disabling continue to originate in accounting. Update the companion on the accounting host when deploying this release; updating HelloSama alone does not install the new action.
 
 ## OpenAI
 

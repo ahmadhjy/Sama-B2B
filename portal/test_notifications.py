@@ -15,7 +15,7 @@ from .sms import approval_text, mobile, submit, status, SMSRejected, SMSUncertai
     SMS_ENABLED=True,SMS_BASE_URL='https://sms.example.com/websmpp',SMS_USERNAME='test-user',SMS_PASSWORD='test-password',
     SMS_SENDER_ID='SamaTours',SMS_ALLOW_HTTP=False,NOTIFICATION_TEST_MODE=False,
     VAPID_PRIVATE_KEY='',VAPID_PUBLIC_KEY='',PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
-    ALLOWED_HOSTS=['testserver'],REQUIRE_PASSPORT_COPY=False,PUBLIC_URL='https://hellosama-demo.pythonanywhere.com')
+    ALLOWED_HOSTS=['testserver'],PUBLIC_URL='https://hellosama-demo.pythonanywhere.com')
 class NotificationTests(TestCase):
     setUp=fixtures.PortalTests.setUp
     user=fixtures.PortalTests.user

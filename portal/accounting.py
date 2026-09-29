@@ -6,13 +6,16 @@ import uuid
 from datetime import timedelta
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
-from .models import Company, User, WorkerState
+from django.views.decorators.debug import sensitive_variables
+from .models import Audit, Company, User, WorkerState
 
 class AccountingUnavailable(Exception):
     pass
 
+@sensitive_variables()
 def bridge_call(action, payload=None):
     if not settings.ACCOUNTING_ENABLED:
         raise AccountingUnavailable('The accounting connection has not been configured.')
@@ -27,6 +30,16 @@ def bridge_call(action, payload=None):
                      'X-HelloSama-Nonce': nonce, 'X-HelloSama-Signature': signature}, timeout=(5, 20), allow_redirects=False)
         if response.status_code == 401:
             return None
+        if action == 'owner-account' and response.status_code in (400, 404, 409):
+            errors = {
+                'unknown_client': 'Client code not found. Add the client in Sama Accounting first, then use their client code here.',
+                'missing_login': 'This client has no portal login yet. Choose Create a new company login.',
+                'credentials_mismatch': 'This client already has a portal login. Enter its current password to connect it; existing passwords are not changed here.',
+                'disabled_login': 'This client login is disabled. Re-enable it in Sama Accounting before connecting it.',
+                'invalid_password': 'Choose a stronger password that meets the accounting password rules.',
+                'account_conflict': 'This client code is already used by another login. Resolve the conflict in Sama Accounting first.',
+            }
+            raise ValidationError(errors.get(response.json().get('error'), 'Accounting could not create this company login. Check the client code and try again.'))
         response.raise_for_status()
         return response.json()
     except (requests.RequestException, ValueError) as exc:
@@ -48,6 +61,39 @@ def provision(item):
         primary.username = item['account_number']
     primary.is_active = item['active']
     primary.save()
+    return primary
+
+@sensitive_variables()
+def create_company_owner(actor, data):
+    """Manage the single accounting identity from HelloSama; never copy its password."""
+    from .permissions import is_ceo
+    from django.core.exceptions import PermissionDenied
+    if not is_ceo(actor):
+        raise PermissionDenied()
+    code = data['account_number'].strip()
+    # Never silently attach a local/demo company or overwrite a populated owner.
+    existing = Company.objects.filter(account_number__iexact=code).first()
+    if existing:
+        owner = existing.users.filter(is_primary=True).first()
+        if not existing.erp_id or not owner or owner.first_name or owner.last_name:
+            raise ValidationError('This company already exists in HelloSama. Manage its owner through People & access.')
+    if User.objects.filter(username__iexact=code).exclude(company=existing, is_primary=True).exists():
+        raise ValidationError('This client code is already used by another HelloSama login.')
+    item = bridge_call('owner-account', {'account_number': code, 'password': data['password'], 'mode': data['mode']})
+    if not item or not item.get('active') or item.get('account_number', '').casefold() != code.casefold():
+        raise AccountingUnavailable('Accounting could not confirm this company login. No local account was created.')
+    try:
+        with transaction.atomic():
+            primary = provision(item)
+            primary.first_name = data['first_name']
+            primary.last_name = data['last_name']
+            if data.get('email'): primary.email = data['email']
+            if data.get('phone'): primary.phone = data['phone']
+            primary.save(update_fields=['first_name', 'last_name', 'email', 'phone'])
+            Audit.objects.create(actor=actor, action='company_owner_connected', target=str(primary.company_id),
+                                 detail=f'Accounting client code: {primary.company.account_number}; owner: {primary.pk}')
+    except IntegrityError as exc:
+        raise AccountingUnavailable('Accounting saved the login, but HelloSama found a conflicting account. Check People & access before retrying.') from exc
     return primary
 
 def sync_companies():

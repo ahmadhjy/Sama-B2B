@@ -16,7 +16,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_POST
-from accounts_core.models import UserProfile
+from accounts_core.models import Client, UserProfile
 from portal.data import build_portal_invoice_cards, build_portal_invoice_detail, build_portal_receipts, build_portal_statement
 from sales.models import SalesInvoice, SalesInvoiceAttachment
 from treasury.models import Payment
@@ -100,6 +100,54 @@ def file_data(client,data):
     if len(content)>10*1024*1024: return {'error':'The source attachment exceeds 10 MB.'}
     return {'name':name,'content':base64.b64encode(content).decode()}
 
+class OwnerAccountError(Exception):
+    def __init__(self, code, status=409):
+        self.code, self.status = code, status
+
+@sensitive_variables()
+@transaction.atomic
+def owner_account(data):
+    """Enable credentials for an existing client; never reset or re-enable an existing login."""
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError
+    from portal.accounts import sync_portal_account
+    code = data.get('account_number', '')
+    password = data.get('password', '')
+    mode = data.get('mode')
+    if not isinstance(code, str) or not 1 <= len(code.strip()) <= 64 or mode not in ('create', 'link'):
+        raise OwnerAccountError('invalid_request', 400)
+    if not isinstance(password, str) or not 1 <= len(password) <= 1024:
+        raise OwnerAccountError('invalid_password', 400)
+    try:
+        client = Client.objects.select_for_update().get(client_code__iexact=code.strip())
+    except Client.DoesNotExist:
+        raise OwnerAccountError('unknown_client', 404)
+    except Client.MultipleObjectsReturned:
+        raise OwnerAccountError('account_conflict')
+    profile = UserProfile.objects.select_related('user').filter(client=client).first()
+    if profile:
+        if not profile.is_client_portal or not profile.user.is_active:
+            raise OwnerAccountError('disabled_login')
+        if not profile.user.check_password(password):
+            raise OwnerAccountError('credentials_mismatch')
+        # Repeated requests with the same credentials are safe after a lost response.
+        return company_data(profile)
+    if mode == 'link':
+        raise OwnerAccountError('missing_login')
+    try:
+        validate_password(password)
+        if len(password) < 10 or password != password.strip():
+            raise ValidationError('Invalid password')
+    except ValidationError:
+        raise OwnerAccountError('invalid_password', 400)
+    try:
+        errors = sync_portal_account(client, enabled=True, password=password)
+    except IntegrityError:
+        raise OwnerAccountError('account_conflict')
+    if errors:
+        raise OwnerAccountError('account_conflict')
+    return company_data(UserProfile.objects.select_related('user', 'client').get(client=client, is_client_portal=True))
+
 @csrf_exempt
 @sensitive_post_parameters()
 @require_POST
@@ -121,6 +169,13 @@ def endpoint(request,action):
             if not profile: get_user_model()().set_password(password)
             return JsonResponse({'error':'Invalid credentials'},status=401)
         result=company_data(profile)
+    elif action=='owner-account':
+        try:
+            result=owner_account(data)
+        except OwnerAccountError as exc:
+            response=JsonResponse({'error':exc.code},status=exc.status)
+            response['Cache-Control']='no-store'
+            return response
     elif action=='companies':
         result={'companies':[company_data(p) for p in UserProfile.objects.filter(is_client_portal=True,client__isnull=False).select_related('user','client')]}
     else:

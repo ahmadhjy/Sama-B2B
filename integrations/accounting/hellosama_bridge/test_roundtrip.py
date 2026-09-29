@@ -36,3 +36,10 @@ class AccountingRoundtripTests(LiveServerTestCase):
             probe('disabled')
             self.assertEqual(sync_portal_account(company,enabled=True),[])
             probe('restored')
+            new_client=Client.objects.create(client_code='ROUNDTRIP02',name_en='Created from HelloSama')
+            probe('portal_created')
+            from accounts_core.models import UserProfile
+            central=UserProfile.objects.get(client=new_client).user
+            self.assertTrue(central.check_password('SharedHelloPass!7492'))
+            self.assertEqual(central.username,'ROUNDTRIP02')
+            self.assertFalse(central.is_staff or central.is_superuser)
