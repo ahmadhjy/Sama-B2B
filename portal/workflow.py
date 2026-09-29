@@ -138,7 +138,7 @@ def request_approval(user, req_id, quote_id):
     quote.submitted_at=timezone.now(); quote.approval_required_count=len(approvers); quote.save()
     req.status='awaiting_approval'; req.save()
     msg=event(req,f'{user.label} submitted {quote.reference} for approval by all {len(approvers)} approvers: '+', '.join(u.label for u in approvers)+'.',user)
-    notifications.notify(req,f'Your approval is requested for {quote.reference}.',f'approval:{msg.pk}',users=approvers,email=True)
+    notifications.notify(req,f'Your approval is requested for {quote.reference}.',f'approval:{msg.pk}',users=approvers,email=True,approval_quote=quote)
     return quote
 
 @transaction.atomic

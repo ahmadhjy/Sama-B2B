@@ -16,6 +16,7 @@ from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_GET
 from . import workflow
@@ -35,7 +36,10 @@ def flash_error(request, exc):
 
 @sensitive_post_parameters('password')
 def sign_in(request):
-    if request.user.is_authenticated: return redirect('dashboard')
+    next_url=request.POST.get('next') or request.GET.get('next','')
+    if not url_has_allowed_host_and_scheme(next_url,allowed_hosts={request.get_host()},require_https=request.is_secure()):
+        next_url=''
+    if request.user.is_authenticated: return redirect(next_url or 'dashboard')
     form=LoginForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         username=form.cleaned_data['username']
@@ -48,11 +52,11 @@ def sign_in(request):
                 if user:
                     login(request,user)
                     Audit.objects.create(actor=user,action='login',target=user.username)
-                    return redirect('dashboard')
+                    return redirect(next_url or 'dashboard')
                 form.add_error(None,'The account number or user ID and password do not match.')
             except AccountingUnavailable as exc:
                 form.add_error(None,str(exc))
-    return render(request,'portal/login.html',{'form':form})
+    return render(request,'portal/login.html',{'form':form,'next_url':next_url})
 
 @require_POST
 def sign_out(request):
@@ -317,6 +321,13 @@ def notification_list(request):
     return render(request,'portal/notifications.html',{'page_title':'Notifications','notes':request.user.notifications.all()[:100]})
 
 @login_required
+def notification_jump(request,note_id):
+    note=get_object_or_404(Notification,pk=note_id,user=request.user)
+    if note.request_id and not visible_requests(request.user).filter(pk=note.request_id).exists():
+        raise Http404()
+    return redirect(note.url)
+
+@login_required
 @require_POST
 def read_notifications(request):
     request.user.notifications.filter(read_at__isnull=True).update(read_at=timezone.now())
@@ -415,11 +426,12 @@ def operations(request):
         return redirect('operations')
     return render(request,'portal/operations.html',{'page_title':'Operations','companies':Company.objects.all(),
         'budget':AIBudget.objects.filter(month=timezone.now().strftime('%Y-%m')).first(),'budget_limit':settings.AI_MONTHLY_LIMIT_USD,
-        'states':WorkerState.objects.all(),'deliveries':Delivery.objects.exclude(status__in=['sent','skipped']).order_by('-created_at')[:40],
+        'states':WorkerState.objects.all(),'deliveries':Delivery.objects.exclude(status__in=['sent','skipped','delivered']).order_by('-created_at')[:40],
         'audit':Audit.objects.select_related('actor').order_by('-created_at')[:30],'connections':{
         'Accounting':settings.ACCOUNTING_ENABLED,'AI assistant':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),
         'Email sending':settings.EMAIL_ENABLED and bool(settings.EMAIL_HOST_PASSWORD),'Incoming email':settings.IMAP_ENABLED,
-        'Push notifications':bool(settings.VAPID_PRIVATE_KEY),'SMS (postponed)':False}})
+        'Push notifications':bool(settings.VAPID_PRIVATE_KEY),'SMS approvals':settings.SMS_ENABLED and bool(settings.SMS_SENDER_ID),
+        'Test recipient restrictions':settings.NOTIFICATION_TEST_MODE}})
 
 @login_required
 def mail_review(request):

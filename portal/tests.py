@@ -25,7 +25,7 @@ from portal.permissions import visible_requests,can_work,can_attachment
 
 @override_settings(DEBUG=True,ACCOUNTING_ENABLED=False,AI_ENABLED=False,EMAIL_ENABLED=False,IMAP_ENABLED=False,
     VAPID_PRIVATE_KEY='',VAPID_PUBLIC_KEY='',PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
-    ALLOWED_HOSTS=['testserver'],REQUIRE_PASSPORT_COPY=False)
+    ALLOWED_HOSTS=['testserver'],REQUIRE_PASSPORT_COPY=False,NOTIFICATION_TEST_MODE=False,SMS_ENABLED=False)
 class PortalTests(TestCase):
     def setUp(self):
         self.storage=tempfile.TemporaryDirectory()

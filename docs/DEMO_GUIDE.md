@@ -32,7 +32,7 @@ All company profiles are complete with fictional values. These are local demonst
 
 The showcase adds 18 requests covering every status, six sample attachments and four planning conversations. Earlier local demo and testing records are preserved.
 
-Sample assistant messages, amounts and booking references are fictional, not live research or reservations. Sending a new assistant message uses the configured OpenAI integration. The showcase command makes no external API calls or notifications. Notification setup is postponed.
+Sample assistant messages, amounts and booking references are fictional, not live research or reservations. Sending a new assistant message uses the configured OpenAI integration. The showcase command makes no external API calls or notifications. Demo-company requests never send real email, SMS or push notifications.
 
 ## Re-create missing examples locally
 

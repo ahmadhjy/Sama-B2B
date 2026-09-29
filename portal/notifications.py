@@ -5,7 +5,8 @@ from django.conf import settings
 from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
-from .models import Delivery, Notification, PushSubscription, User
+from .models import Approval, Delivery, Notification, PushSubscription, TravelRequest, User
+from .sms import SMSRejected, SMSUncertain
 
 def participants(req, internal=False):
     ids = set(User.objects.filter(role='ceo', company__isnull=True, is_active=True).values_list('id', flat=True))
@@ -19,7 +20,7 @@ def participants(req, internal=False):
             ids.update(quote.approvals.values_list('user_id', flat=True))
     return User.objects.filter(pk__in=ids, is_active=True)
 
-def notify(req, text, event_key, *, users=None, actor=None, email=False, internal=False):
+def notify(req, text, event_key, *, users=None, actor=None, email=False, internal=False, approval_quote=None):
     users = users if users is not None else participants(req, internal)
     for user in users:
         if actor and actor.pk == user.pk:
@@ -27,6 +28,11 @@ def notify(req, text, event_key, *, users=None, actor=None, email=False, interna
         url = f'/requests/{req.pk}/'
         note = Notification.objects.create(user=user, request=req, text=text[:240], url=url)
         payload = {'text':text, 'url':url, 'reference':req.reference}
+        if approval_quote is not None:
+            payload.update({'quote_id':str(approval_quote.pk),'requester_name':req.requester.label})
+            if settings.SMS_ENABLED and user.phone:
+                Delivery.objects.get_or_create(dedupe_key=f'{event_key}:sms:{user.pk}', defaults={
+                    'notification':note,'channel':'sms','recipient':user.phone,'payload':payload})
         if email and user.email and user.email_notifications:
             Delivery.objects.get_or_create(dedupe_key=f'{event_key}:email:{user.pk}', defaults={
                 'notification':note,'channel':'email','recipient':user.email,'payload':payload})
@@ -46,6 +52,11 @@ def safe_push_endpoint(endpoint):
     return parsed.scheme == 'https' and parsed.port in (None,443) and not parsed.username and not parsed.password and any(host == h or host.endswith('.'+h) for h in hosts)
 
 def send_delivery(item):
+    # Demo fixtures must never produce messages to real phone numbers or mailboxes.
+    reference=item.payload.get('reference')
+    if reference and TravelRequest.objects.filter(reference=reference,company__erp_id__isnull=True,
+            company__account_number__startswith='DEMO-').exists():
+        return 'skipped'
     if item.notification_id:
         user=item.notification.user
         if not user.is_active or user.company_id and not user.company.active:
@@ -55,6 +66,29 @@ def send_delivery(item):
             if not visible_requests(user).filter(pk=item.notification.request_id).exists():
                 return 'skipped'
     payload=item.payload
+    if settings.NOTIFICATION_TEST_MODE:
+        if item.channel=='email' and item.recipient.lower() not in settings.NOTIFICATION_TEST_EMAILS:
+            return 'test_blocked'
+        if item.channel=='sms':
+            from .sms import mobile
+            if mobile(item.recipient) not in {mobile(v) for v in settings.NOTIFICATION_TEST_PHONES}:
+                return 'test_blocked'
+        if item.channel=='push':
+            return 'test_blocked'
+    if item.channel=='sms':
+        if not settings.SMS_ENABLED:
+            return 'disabled'
+        if not item.notification_id or not Approval.objects.filter(quote_id=payload.get('quote_id'),
+                user_id=item.notification.user_id,decision='pending',quote__superseded=False,
+                quote__valid_until__gt=timezone.now(),quote__request__status='awaiting_approval',
+                user__can_approve=True).exists():
+            return 'skipped'
+        from .sms import approval_text, submit
+        link=f'{settings.PUBLIC_URL}/n/{item.notification_id}/'
+        item.provider_message_id=submit(item.recipient,approval_text(payload.get('requester_name','A teammate'),link))
+        item.provider_status='ACCEPTD';item.provider_checked_at=timezone.now()
+        item.save(update_fields=['provider_message_id','provider_status','provider_checked_at'])
+        return 'submitted'
     if item.channel == 'email':
         if not settings.EMAIL_ENABLED:
             return 'disabled'
@@ -100,6 +134,8 @@ def process_deliveries(limit=30):
         try:
             item.status=send_delivery(item)
             item.error=''
+        except SMSRejected as exc:
+            item.status='failed';item.error=str(exc)
         except Exception as exc:
             # Once a send has started, a connection error may mean the provider accepted it.
             # Surface this instead of creating duplicate approval messages.
@@ -107,4 +143,28 @@ def process_deliveries(limit=30):
             item.error=type(exc).__name__[:100]
         item.save(update_fields=['status','error'])
         count+=1
+    return count
+
+
+def check_sms_statuses(limit=10):
+    if not settings.SMS_ENABLED:
+        return 0
+    from django.db.models import Q
+    from .sms import status
+    now=timezone.now();count=0
+    pending=Delivery.objects.filter(channel='sms',status='submitted').filter(
+        Q(provider_checked_at__isnull=True)|Q(provider_checked_at__lt=now-timedelta(minutes=2)))
+    for item in pending.order_by('provider_checked_at','id')[:limit]:
+        if item.created_at < now-timedelta(days=3):
+            item.status='uncertain';item.provider_status='UNKNOWN';item.error='SMS delivery report timed out; do not resend without checking'
+        else:
+            try:
+                item.provider_status=status(item.provider_message_id)
+                if item.provider_status=='DELIVRD': item.status='delivered';item.error=''
+                elif item.provider_status in ('UNDELIV','EXPIRED','REJECTD','DELETED'):
+                    item.status='failed';item.error='SMS_'+item.provider_status
+            except (SMSRejected,SMSUncertain) as exc:
+                item.error=str(exc)
+        item.provider_checked_at=now
+        item.save(update_fields=['status','provider_status','provider_checked_at','error']);count+=1
     return count

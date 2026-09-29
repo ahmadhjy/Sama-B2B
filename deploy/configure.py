@@ -3,12 +3,13 @@ import argparse
 import base64
 import os
 import secrets
+import re
 from pathlib import Path
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 
-def configure(local=False):
+def configure(local=False,domain=None):
     root=Path(__file__).resolve().parents[1]
     target=root/'.env'
     if target.exists():
@@ -20,7 +21,10 @@ def configure(local=False):
         'ACCOUNTING_SHARED_SECRET':secrets.token_urlsafe(48),'VAPID_PRIVATE_KEY':b64(private.private_numbers().private_value.to_bytes(32,'big')),
         'VAPID_PUBLIC_KEY':b64(private.public_key().public_bytes(serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint))}
     if not local:
-        replacements.update({'DJANGO_DEBUG':'False','PUBLIC_URL':'https://hellosama.com','DJANGO_ALLOWED_HOSTS':'hellosama.com,www.hellosama.com'})
+        domain=(domain or os.environ.get('DEPLOY_DOMAIN') or 'hellosama.com').lower().strip()
+        if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?',domain) or '.' not in domain:
+            raise SystemExit('DEPLOY_DOMAIN must be a hostname, without https:// or a path.')
+        replacements.update({'DJANGO_DEBUG':'False','PUBLIC_URL':'https://'+domain,'DJANGO_ALLOWED_HOSTS':domain})
     lines=[]
     for line in (root/'.env.example').read_text().splitlines():
         key=line.split('=',1)[0]
@@ -32,4 +36,5 @@ def configure(local=False):
     if not local: print('Also fill in the PostgreSQL and accounting connection settings before deployment.')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--local',action='store_true');configure(parser.parse_args().local)
+    parser=argparse.ArgumentParser();parser.add_argument('--local',action='store_true');parser.add_argument('--domain')
+    args=parser.parse_args();configure(args.local,args.domain)

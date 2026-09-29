@@ -65,8 +65,9 @@ with sync_playwright() as p:
     capture('07-awaiting-approval')
     page.get_by_role('button',name='Approve',exact=False).filter(has_text='Approve').first.click()
     page.wait_for_load_state()
-    sign_in('demo.approver');page.goto(request_url)
-    page.get_by_role('button',name='Approve',exact=False).first.click();page.wait_for_load_state()
+    for approver in ('demo.approver','demo.manager'):
+        sign_in(approver);page.goto(request_url)
+        page.get_by_role('button',name='Approve',exact=False).first.click();page.wait_for_load_state()
     page.get_by_text('All required approvers accepted this quotation.',exact=False).wait_for()
     sign_in('demo.sales');page.goto(request_url)
     page.locator('#next-status').select_option('booking');page.get_by_role('button',name='Update status',exact=True).click();page.wait_for_load_state()
@@ -80,6 +81,6 @@ with sync_playwright() as p:
         page.goto(BASE+url);capture(name)
     browser.close()
 
-(OUTPUT/'browser-results.json').write_text(json.dumps({'errors':errors,'journey':'submitted → claimed → quoted → 2 approvals → booking → confirmed','request_url':request_url},indent=2))
+(OUTPUT/'browser-results.json').write_text(json.dumps({'errors':errors,'journey':'submitted → claimed → quoted → 3 approvals → booking → confirmed','request_url':request_url},indent=2))
 if errors: raise SystemExit('\n'.join(errors))
 print('Browser acceptance journey passed. Desktop/mobile screenshots saved in test-results/.')

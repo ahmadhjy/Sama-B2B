@@ -1,39 +1,36 @@
 # Build and validation status
 
-Prepared locally on 28 September 2026. The application has not yet been deployed to PythonAnywhere or connected to live providers.
+Updated 29 September 2026. Source repository: https://github.com/ahmadhjy/Sama-B2B. The application is prepared for a separate PythonAnywhere web app; it has not been deployed there yet.
 
 ## Included
 
-- Separate Django portal with the existing Sama branding and responsive English interface.
-- Accounting-backed company access, company user management and cross-role approval permissions.
-- Private request conversations, sales queue and assignment, attachments and progress updates.
-- Versioned PDF quotations, unanimous approval tracking and booking confirmation.
-- Public travel research assistant, editable summaries and a manual request path.
-- Read-only accounting views through the included signed accounting bridge.
-- Email outbox, incoming-email review, opt-in browser push and operational history.
-- Private configuration, encrypted passport numbers and uploads, PostgreSQL deployment configuration and one-command updates.
-
-SMS delivery is postponed. Incoming email is staged for CEO review before it is published into a request conversation; email does not authorize approvals or bookings.
+- Responsive English corporate portal using the existing Sama branding.
+- Accounting-backed owner creation and sign-in, company users, individual permissions and complete profiles.
+- Sales queue and exclusive assignment, private conversations, documents and request status history.
+- Versioned PDF quotations, all-person approval tracking, rejection/expiry rules and booking confirmation.
+- Public travel research assistant, editable summaries and a manual request path, with a $20 application allowance.
+- Scoped accounting statements, invoices, receipts and attachments.
+- Email outbox, reviewed incoming mail, opt-in push, and Broadnet GW3N SMS approval alerts with delivery reports.
+- Private settings, encrypted passport numbers/documents and repeatable PostgreSQL deployment/update scripts.
+- Temporary-domain notification restrictions and automatic suppression of real notifications from demo companies.
 
 ## Verified locally
 
-- 52 HelloSama automated tests passed.
-- 18 accounting-side tests passed, including the new bridge and the existing client portal.
-- A browser journey passed from request creation through sales assignment, quotation, two approvers and booking confirmation.
-- Desktop and mobile layouts were inspected; the browser journey reported no page JavaScript errors or horizontal overflow.
-- Production Django configuration checks, migration consistency and deployment script syntax checks passed.
-- Repository exclusions cover credentials, databases, documents, local demo access and test artifacts.
+- 70 portal tests passed; the three PostgreSQL-only concurrency tests are skipped on local SQLite and run in GitHub Actions.
+- 19 accounting/bridge tests passed, including a real signed HTTP roundtrip between separate Django applications and isolated databases.
+- The roundtrip verified owner creation by the worker, unchanged account/password sign-in, password reset, idempotent sync, company disabling for owner/employees and access restoration.
+- The live OpenAI model access check passed. Public research returned a Tourism Authority of Thailand citation and the generated summary passed the request form's validation with correct ISO dates and traveller count. The two calls totalled approximately $0.011369.
+- IONOS SMTP STARTTLS and IMAP TLS authentication passed. No live email was sent; the mailbox was not modified.
+- SMS authentication/balance passed (29,901 credits at the time checked). Submission formats, rejection handling, uncertain outcomes, short authenticated links, recipient restrictions and delivery-report transitions passed automated tests.
+- Production Django checks for the temporary subdomain, migration consistency, Python compilation and deployment script syntax passed.
+- Browser journey and the PostgreSQL GitHub Actions result are recorded with the release verification below.
 
-Three PostgreSQL concurrency tests are included and run in the GitHub Actions configuration. They are skipped on the local SQLite database and have not yet been run against PostgreSQL. Production configuration validation does not establish a database connection or prove live delivery.
+The SMS HTTPS endpoints failed certificate/protocol checks. The documented HTTP endpoint works and is explicitly configurable; portal OTP does not secure that transport. A provider-approved sender and a controlled test mobile number are still required for handset delivery testing.
 
-## Pending live setup and verification
+## Remaining on-host checks
 
-1. Supply the new GitHub repository URL, push the source and run its PostgreSQL CI checks.
-2. Provision the new PythonAnywhere web app, separate PostgreSQL database and always-on worker.
-3. Enter the replacement OpenAI project key and IONOS mailbox password in the server's private `.env`.
-4. Deploy the accounting bridge, share its private integration secret and verify company login and financial visibility.
-5. Configure domain routing and HTTPS, preserving IONOS mail records.
-6. Test OpenAI billing/model access, public research, email sending/receiving and browser push with controlled accounts.
-7. Complete the scenarios in [LIVE_TESTING.md](LIVE_TESTING.md) before inviting customers.
+Create the new web app, separate PostgreSQL database and always-on worker; configure the server's private `.env`; install/reload the accounting companion; and follow [LIVE_TESTING.md](LIVE_TESTING.md). Repeat connection checks from PythonAnywhere. Test actual email/SMS receipt and browser push with controlled recipients before disabling notification test mode.
 
-See [the deployment guide](../DEPLOY_PYTHONANYWHERE.md) for the exact setup and update commands.
+The GitHub repository receives source and placeholder configuration only. Passwords, API keys, databases, uploaded documents and private demo credentials remain excluded.
+
+See [the deployment guide](../DEPLOY_PYTHONANYWHERE.md) for the exact commands and temporary-domain setup.

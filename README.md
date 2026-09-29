@@ -30,7 +30,7 @@ Open `http://127.0.0.1:8765`. Demo accounts are fictional and the seed command p
 .\.venv\Scripts\python manage.py test portal --noinput
 ```
 
-Tests mock external services and use a separate temporary test database. For browser checks, install `requirements-dev.txt` and run `python scripts/browser_smoke.py` with the local preview running. Browser checks use only fictional demo accounts. Screenshots go to ignored `test-results/`.
+Tests mock external services and use a separate temporary test database. For browser checks, install `requirements-dev.txt`, run `python manage.py seed_showcase`, then run `python scripts/browser_smoke.py` with the local preview running. Browser checks use only fictional demo accounts, including the three showcase approvers. Screenshots go to ignored `test-results/`.
 
 GitHub Actions runs the same suite on PostgreSQL, including concurrent claiming, approvals and budget reservations. Those three tests are intentionally skipped with SQLite; a SQLite pass is not a claim that PostgreSQL row-lock behavior was exercised locally.
 
@@ -47,6 +47,6 @@ GitHub Actions runs the same suite on PostgreSQL, including concurrent claiming,
 
 ## Current service boundaries
 
-SMS is intentionally disabled until the provider supplies usable API documentation. OpenAI, IONOS, web push and the production accounting connection require their configuration and live verification. No real travel is booked automatically. A Sama specialist confirms the supplier booking in the portal after all approvals.
+SMS approval alerts use the Broadnet GW3N API with tracked submission and delivery status. Credentials and an approved sender ID are configured privately. Initial deployments restrict external notifications to test recipients. OpenAI, IONOS, web push and the production accounting connection require their configuration and live verification. No real travel is booked automatically. A Sama specialist confirms the supplier booking in the portal after all approvals.
 
 The portal is not a flight reservation engine. Public web search is used for suggestions with sources; the salesperson verifies fares and availability. There is no separate financial ledger in HelloSama.

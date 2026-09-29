@@ -35,10 +35,14 @@ Use a fictional test company first. This checklist is for the configured PythonA
 - Reply to a portal notification; see it in Incoming email, review it, then add it to the proper conversation. Confirm it cannot approve a quote.
 - Opt in to push on desktop/Android, and on an installed Home Screen app on iPhone/iPad. Denying permission must not prevent portal use.
 - Review uncertain deliveries and only retry after checking provider records.
+- In test-recipient mode, submit a quotation to approved test numbers. Each approver receives one SMS with a portal link; a numeric provider response shows Submitted until a delivery report confirms Delivered.
+- Follow the SMS link while signed out: signing in returns to the correct request. A different user's account cannot open that notification.
+- Approve or supersede a quotation before its queued SMS sends; the obsolete alert must be skipped.
+- Keep test recipients restricted until these checks pass; remove restrictions deliberately when opening to real companies.
 
 ## Operations
 
 - Run the one-command update and confirm web app reload, worker restart, and preserved uploads/configuration/data.
 - Back up and restore the test database and encrypted documents with the saved encryption key.
 - Agree passport-copy, self-approval and data-retention settings before inviting real clients.
-- Add SMS sending and delivery tests only after the integration documentation is available.
+- Confirm the provider-approved SMS sender, transport, balance and delivery reports from PythonAnywhere itself.

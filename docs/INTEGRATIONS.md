@@ -32,4 +32,10 @@ VAPID keys are generated locally during private configuration setup. Private pag
 
 ## SMS
 
-The outbox data model includes a future SMS channel, but sending is deliberately disabled and no portal credentials or guessed provider URLs are embedded. Add the documented sender endpoint/authentication/delivery reporting only after a valid provider guide is available. The HLR guide describes number lookups, not SMS sending.
+The Broadnet GW3N guide supplied on 29 September 2026 documents `/websmpp/websms` (POST form fields `user`, `pass`, `sid`, `mno`, `type=1`, `text`), `/websmpp/websmsstatus` (`respid`) and `/websmpp/balanceReport`. Credentials are sent in a POST body, never added to URLs, source code or logs. The approved sender ID is a required configuration value.
+
+Submitting a quotation for approval creates one SMS delivery per designated approver. Alerts contain the requester's name and a short authenticated `/n/<notification-id>/` link. Login preserves that destination; other users cannot open the recipient's notification. Stale, superseded or already-decided approval alerts are skipped. A numeric provider response means **submitted**, not delivered. The worker polls the documented status endpoint and records `DELIVRD` separately. Known provider rejections are marked failed; timeouts/unknown submission results are uncertain and never automatically resent. Unsigned provider callbacks are not accepted.
+
+The supplied host is `http://smppa3.broadnet.me:8080/websmpp`. HTTPS checks failed during local verification. This requires an explicit `SMS_ALLOW_HTTP=True` setting; it does not disable certificate checking or silently downgrade HTTPS. Portal OTP does not encrypt this separate HTTP API connection. Prefer a provider-confirmed HTTPS endpoint when available.
+
+`NOTIFICATION_TEST_MODE=True` restricts email and SMS to `NOTIFICATION_TEST_EMAILS` and `NOTIFICATION_TEST_PHONES`, and suppresses push delivery. Demo-company records never send external notifications. SMS remains off until sender/recipient delivery testing is complete. Provider authentication and balance were verified locally; actual handset delivery requires a designated test number.

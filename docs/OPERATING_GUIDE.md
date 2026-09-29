@@ -40,7 +40,7 @@ Mark traveller/passport attachments as private. Approvers do not automatically r
 
 ## Notifications and correspondence
 
-In-portal notifications are always available. Email and push require configuration and device permission. New requests notify the business mailbox; quotations and approval decisions notify participants. SMS is postponed. Device pushes contain a generic update message and a portal link rather than passport or payment information.
+In-portal notifications are always available. Email and push require configuration and device permission. New requests notify the business mailbox; quotations and approval decisions notify participants. SMS approval alerts notify each required approver when a quotation is submitted. Device pushes contain a generic update message and a portal link rather than passport or payment information.
 
 The CEO reviews new incoming mailbox replies before adding them to conversations. This avoids trusting a forged From address. The recorded conversation message identifies the email sender and staff reviewer. This first release deliberately uses reviewed incoming replies instead of automatic email impersonation. Attachments can be reviewed in IONOS and uploaded through the request interface.
 
@@ -59,4 +59,4 @@ The monthly allowance is shared across the entire application and capped at $20.
 - All company approvers must approve each version; no majority rule or automatic bypass.
 - PDF/JPG/PNG only, 10 MB per file, five per message.
 - No automatic document/history deletion until the retention policy is agreed.
-- Email/push active only when configured; SMS postponed.
+- Email, push and SMS active only when configured; initial staging notifications are restricted to test recipients.

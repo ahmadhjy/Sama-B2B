@@ -1,144 +1,163 @@
 # Deploy HelloSama on PythonAnywhere
 
-HelloSama is a separate web app, virtual environment and PostgreSQL database. Keep the accounting app and its existing database in place. These instructions assume a paid custom plan with another web app and an always-on task slot.
+Repository: https://github.com/ahmadhjy/Sama-B2B
 
-## 1. Repository and private configuration
+HelloSama uses a separate web app, virtual environment and PostgreSQL database. Keep the existing accounting app and its database in place. The plan needs another web app and an always-on task slot.
 
-After the GitHub repository URL is available, push this **HelloSama folder** as its own repository. Never push `.env`, `.demo-access.txt`, local databases, uploads or backups. The accounting bridge is also included in this repository under `integrations/accounting/`.
+## 1. Start on a temporary subdomain
 
-Clone the new repository on PythonAnywhere, for example to `/home/YOUR_USERNAME/HelloSama`. Use Python 3.12, or set `PYTHON_BIN` to a supported version of Python 3.10 or later on your plan.
+For the existing PythonAnywhere username `Samatours2026`, use:
 
-Run:
+**https://hellosama-samatours2026.pythonanywhere.com**
+
+In the Web tab choose **Add a new web app → Your own domain**, enter `hellosama-samatours2026.pythonanywhere.com`, and choose manual configuration with Python 3.12. PythonAnywhere supports names of the form `something-yourusername.pythonanywhere.com`. For an EU account, use the equivalent `something-yourusername.eu.pythonanywhere.com` instead. Use the exact domain that the Web tab accepts.
+
+Do not rename or replace the existing accounting web app. The new portal domain does not require changes to HelloSama's main-domain DNS or IONOS mail records.
+
+## 2. Clone and run the setup command
+
+In a Bash console:
 
 ```bash
-cd /home/YOUR_USERNAME/HelloSama
-bash deploy/update.sh
+cd /home/Samatours2026
+git clone https://github.com/ahmadhjy/Sama-B2B.git HelloSama
+cd HelloSama
+DEPLOY_DOMAIN=hellosama-samatours2026.pythonanywhere.com bash deploy/update.sh
 ```
 
-On the first run this creates `.venv` and a private `.env` with generated application, encryption, accounting-integration and web-push keys. It stops at configuration validation until PostgreSQL settings are supplied. Edit `.env` in PythonAnywhere's Files editor, or with `nano .env`.
+For a private GitHub repository, use your usual GitHub authentication or a read-only deploy key; do not put a token in the clone URL.
 
-**Your two requested secret fields are:**
+The first run creates `.venv` and a private `.env` with generated application, encryption, integration and push keys. It stops at validation until the database settings are supplied. Edit `.env` using PythonAnywhere's Files editor. An existing `.env` is always preserved; `DEPLOY_DOMAIN` only affects initial creation.
 
-```dotenv
-OPENAI_API_KEY=your-replacement-OpenAI-project-key
-EMAIL_HOST_PASSWORD=the-password-for-info@hellosama.com
-```
+## 3. Private configuration
 
-These values stay on the server. They are not JavaScript settings and must not be entered into GitHub files. Use a dedicated OpenAI project/key for this portal. The earlier key pasted in chat should be replaced. Do not use the main IONOS account password.
-
-Fill in these connection fields:
+The following fields belong **only in the server's `.env`**, never in GitHub:
 
 ```dotenv
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=hellosama.com,www.hellosama.com
-PUBLIC_URL=https://hellosama.com
+DJANGO_ALLOWED_HOSTS=hellosama-samatours2026.pythonanywhere.com
+PUBLIC_URL=https://hellosama-samatours2026.pythonanywhere.com
 DB_NAME=your_separate_hellosama_database
 DB_USER=your_postgresql_user
 DB_PASSWORD=your_postgresql_password
 DB_HOST=your_postgresql_host
 DB_PORT=your_postgresql_port
 DB_SSLMODE=prefer
-ACCOUNTING_BASE_URL=https://your-accounting-domain
+ACCOUNTING_BASE_URL=https://samatours2026.pythonanywhere.com
+OPENAI_API_KEY=your_OpenAI_project_key
+AI_ENABLED=True
 EMAIL_HOST_USER=info@hellosama.com
+EMAIL_HOST_PASSWORD=the_mailbox_password
 EMAIL_HOST=smtp.ionos.com
 EMAIL_PORT=587
-BUSINESS_EMAIL=info@hellosama.com
-IMAP_HOST=imap.ionos.com
-```
-
-Use the exact PostgreSQL host/port from your Databases tab; PythonAnywhere can use a non-default port. Create a separate database; do not point HelloSama at the accounting database. Set SSL mode according to the database host's requirements. Preserve `DATA_ENCRYPTION_KEY` permanently; losing it means losing access to existing encrypted passport information and files.
-
-Enable each external service when its connection is ready:
-
-```dotenv
-AI_ENABLED=True
 EMAIL_ENABLED=True
+IMAP_HOST=imap.ionos.com
 IMAP_ENABLED=True
+BUSINESS_EMAIL=info@hellosama.com
+SMS_BASE_URL=http://smppa3.broadnet.me:8080/websmpp
+SMS_USERNAME=your_provider_username
+SMS_PASSWORD=your_provider_password
+SMS_SENDER_ID=your_provider_approved_sender
+SMS_ENABLED=False
+SMS_ALLOW_HTTP=True
+NOTIFICATION_TEST_MODE=True
+NOTIFICATION_TEST_EMAILS=info@hellosama.com
+NOTIFICATION_TEST_PHONES=
 ```
 
-The API key alone does not confirm billing/model access. The monthly application allowance is capped at $20 and may be configured lower. External usage of the same OpenAI key/project is outside HelloSama's meter. SMS remains disabled.
+Copy the current OpenAI, mailbox and SMS credentials from your local private configuration; deployment does not copy them through Git. Use the exact PostgreSQL host/port from the Databases tab, which may differ from port 5432. Create a separate database and set SSL mode according to its requirements. If accounting uses a different live domain, use that exact HTTPS address.
 
-## 2. Create the new web app and database
+Keep the generated `DJANGO_SECRET_KEY`, `DATA_ENCRYPTION_KEY`, `ACCOUNTING_SHARED_SECRET`, `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`. Back up the encryption key permanently; existing encrypted documents cannot be recovered without it. Do not upload the local demo database, demo password file or test uploads.
 
-In PythonAnywhere's Web tab, add a **new** manually configured Python web app for `hellosama.com`. Select the same Python version used by the virtual environment.
+`SMS_SENDER_ID` must be approved by the provider. After confirming a test mobile number, put it in `NOTIFICATION_TEST_PHONES` in international format and enable `SMS_ENABLED=True`. SMS sends only approval alerts, one per required approver. The provider documentation uses HTTP and the checked HTTPS endpoints failed. `SMS_ALLOW_HTTP=True` explicitly permits that transport; a portal OTP does not encrypt these API requests. Use a provider-confirmed HTTPS endpoint when available and then set this flag back to False.
 
-Set:
+Keep notification test mode on initially: only listed email addresses and phone numbers receive messages, and push delivery is suppressed. Demo-company requests never produce external messages. When all delivery checks pass, deliberately turn test mode off to enable real client recipients and opted-in push devices. Old blocked test deliveries are not automatically replayed.
 
-- Source directory: `/home/YOUR_USERNAME/HelloSama`
-- Working directory: `/home/YOUR_USERNAME/HelloSama`
-- Virtualenv: `/home/YOUR_USERNAME/HelloSama/.venv`
-- Static mapping `/static/` → `/home/YOUR_USERNAME/HelloSama/staticfiles`
+## 4. Finish the web app configuration
 
-**Do not create a `/media/` or `/private_uploads/` static mapping.** Uploaded documents are encrypted and only downloaded through signed-in, permission-checked views.
+Set these values in the new Web app:
 
-Copy the exact new web app WSGI path into `PA_WSGI_FILE` in `.env`. It normally looks like `/var/www/hellosama_com_wsgi.py`; use the path actually shown by PythonAnywhere. Never use the accounting app's WSGI path.
+- Source and working directory: `/home/Samatours2026/HelloSama`
+- Virtualenv: `/home/Samatours2026/HelloSama/.venv`
+- Static mapping `/static/` to `/home/Samatours2026/HelloSama/staticfiles`
 
-Run `bash deploy/update.sh` again. It applies HelloSama migrations, collects static files, checks deployment settings, and generates `deploy/generated_wsgi.py`. On first setup, paste this generated content into the **new HelloSama** WSGI file in the Web tab. Subsequent updates manage/reload only a file bearing the HelloSama marker. Existing, unmarked WSGI files are preserved.
+Do not map `/media/` or `/private_uploads/`: private files require signed-in permission checks.
 
-Configure the domain DNS using PythonAnywhere's exact instructions for that web app and enable its HTTPS certificate. Keep IONOS MX/mail records intact when changing website DNS. Verify SPF/DKIM/DMARC mail authentication before live sending.
-
-## 3. Connect the accounting system
-
-From the HelloSama directory:
+Copy the new app's exact WSGI file path from the Web tab into `PA_WSGI_FILE` in `.env`. Run:
 
 ```bash
-.venv/bin/python deploy/install_accounting_bridge.py /home/YOUR_USERNAME/YOUR_ACCOUNTING_PROJECT
+bash /home/Samatours2026/HelloSama/deploy/update.sh
 ```
 
-This copies the `hellosama_bridge` app and adds exactly one app registration and one URL registration to accounting. Review/commit those additions in the accounting repository as part of its next deployment so they are not lost on accounting updates.
+This applies migrations, collects static files, checks production settings and writes `deploy/generated_wsgi.py`. On the first setup, paste its contents into the **new HelloSama WSGI file**. Existing unmarked WSGI files are preserved. Future updates manage/reload only files bearing the HelloSama deployment marker. Enable HTTPS and confirm the site opens securely.
 
-Copy `ACCOUNTING_SHARED_SECRET` from HelloSama's private `.env` into the accounting project's **root `.env`** under the name:
+## 5. Connect accounting and automatic owner creation
+
+```bash
+cd /home/Samatours2026/HelloSama
+.venv/bin/python deploy/install_accounting_bridge.py /home/Samatours2026/Sama-Acc
+```
+
+The installer copies only the included `hellosama_bridge` companion and adds one app registration plus one URL registration. Preserve those changes in the accounting repository as part of its next normal update.
+
+Copy HelloSama's `ACCOUNTING_SHARED_SECRET` into the accounting project's root `.env` as:
 
 ```dotenv
-HELLOSAMA_SHARED_SECRET=the-same-integration-secret
+HELLOSAMA_SHARED_SECRET=the_same_integration_secret
 ```
 
-The existing accounting settings load that root `.env`. If you instead use a production environment loader, make sure it loads this value for both accounting's web process and management commands. Keep the file private (`chmod 600 .env`). No user passwords are copied between applications.
-
-Using the accounting virtual environment, run its migrations and reload the accounting web app. Use its existing deployment process after committing the bridge. The additional migration creates only a short-lived signature replay-protection table.
-
-HelloSama automatically synchronizes company accounts every 60 seconds while the worker is running. A company's first sign-in also provisions it immediately. Changes to company account names and enabled status synchronize; password changes are verified centrally, and primary sessions are invalidated within the 60-second status window. Company employees have individual HelloSama logins tied to the centrally enabled company. They do not get duplicate financial accounts.
-
-## 4. Create your Sama administrator
+Run accounting's migration with its own virtual environment:
 
 ```bash
+cd /home/Samatours2026/Sama-Acc
+/home/Samatours2026/.virtualenvs/sama-accounting/bin/python manage.py migrate --noinput
+```
+
+Reload the **accounting** app once from its Web tab. Use its established production settings/environment loader. The bridge migration adds only a signature replay-protection table; it does not copy or replace the accounting database.
+
+With the HelloSama worker running, creating/enabling portal credentials in accounting automatically creates the company and its HelloSama owner within 60 seconds. First login also creates the owner immediately if it has not synced yet. The same account number and password work, with central verification; no password or hash is copied into HelloSama. The new owner completes their profile on first login and can then add company employees. Password changes and disabled status propagate; disabled companies lose access for both owner and employees.
+
+## 6. Create the administrator and start the worker
+
+```bash
+cd /home/Samatours2026/HelloSama
 .venv/bin/python manage.py create_ceo --username sama.admin --email YOUR_ADMIN_EMAIL --first-name YOUR_FIRST_NAME --last-name YOUR_LAST_NAME
 ```
 
-The command privately prompts for a password. It does not print or store it in a text document. Sign in and create Sama sales/accounting users through **People & access**. Company accounts come from accounting.
+The password is prompted privately. Use **People & access** to add Sama sales/accounting users. Company owners come from accounting.
 
-## 5. Start the background worker
-
-Create an always-on task in PythonAnywhere:
+Create this always-on task:
 
 ```bash
-bash /home/YOUR_USERNAME/HelloSama/deploy/worker.sh
+bash /home/Samatours2026/HelloSama/deploy/worker.sh
 ```
 
-The worker delivers notifications, synchronizes accounts, receives new mailbox correspondence and expires quotations. It avoids overlapping workers. Web conversations refresh every 20 seconds when idle; unsent message text is preserved by showing a refresh prompt instead.
+The worker synchronizes accounts, delivers notifications, checks SMS delivery reports, receives new mailbox replies and expires quotes. An update changes `.release`; the worker exits so PythonAnywhere restarts it with the updated code. Confirm the task restarts after the first update.
 
-A deployment updates `.release`; an already-running worker detects it and exits so PythonAnywhere's always-on supervisor restarts it with the updated code. Confirm the task resumes after the first update. If running manually, restart it manually. A scheduled `manage.py portal_worker --once` can be used for diagnostics, but hourly schedules will delay notifications and provisioning, so use an always-on slot for the intended experience.
+The first IMAP connection starts at the latest existing mailbox UID and does not import old mailbox history. New replies are staged for CEO review. Email never approves a quotation. Attachments remain in IONOS for review and upload.
 
-The first successful IMAP connection establishes a starting point and does **not** import your existing mailbox history. New replies appear in **Incoming email** for CEO review. Email attachments remain in IONOS for review before upload. Email is never an approval mechanism.
-
-## 6. Updates: one command
-
-After changes are pushed to GitHub:
+## 7. Verify on PythonAnywhere
 
 ```bash
-bash /home/YOUR_USERNAME/HelloSama/deploy/update.sh
+cd /home/Samatours2026/HelloSama
+.venv/bin/python manage.py check_readiness
+.venv/bin/python manage.py check_connections --accounting --openai --email --sms
 ```
 
-It pulls using fast-forward only, installs locked dependencies, validates deployment settings, applies migrations, collects static files and requests a reload. It never resets/discards local tracked changes. Private configuration, uploaded files and database data are preserved. If you use another virtualenv path, set `VENV_PATH` consistently for the update and worker scripts.
+Connection checks do not send email/SMS, change accounting records or print credentials. Then complete [LIVE_TESTING.md](docs/LIVE_TESTING.md), including a controlled email/SMS delivery and browser-push test, before inviting clients. Local checks and GitHub CI do not prove that the production host can reach each provider.
 
-## 7. Backups and recovery
+## 8. Future updates: one command
 
-Before production updates, take a PostgreSQL backup using your existing backup procedure. Back up the **HelloSama database**, `private_uploads/`, and the private encryption/configuration keys. Keep the keys separate from the data backup, restrict access and test restoration. No automatic data deletion/retention job is enabled until the business approves its retention policy.
+```bash
+bash /home/Samatours2026/HelloSama/deploy/update.sh
+```
 
-If an update fails, the script stops. Review the error before restarting. Do not run data-wipe commands. Database schema rollback is migration-specific; restore a tested backup if needed. The repository preserves quote, approval and audit history.
+This pulls fast-forward only, installs locked dependencies, validates configuration, applies migrations, collects static files and reloads the portal. It never discards tracked changes or replaces private settings, uploads or database content. Take a database backup before production updates. Back up the database, encrypted uploads and private keys separately and test restoration.
 
-## 8. Verify before opening to clients
+## 9. Move to HelloSama.com after testing
 
-Run `.venv/bin/python manage.py check_readiness`, inspect **Operations**, and follow [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md). Configure a test company and use a controlled mailbox/phone before inviting real customers. SMS integration is postponed until provider documentation is available.
+Rename the HelloSama web app to the final domain using the Web tab; keep the same project and database. Configure its DNS using PythonAnywhere's exact instructions and enable HTTPS. Preserve IONOS MX, SPF, DKIM and DMARC records.
 
-Sources used for hosting behavior: [PythonAnywhere Django deployment](https://help.pythonanywhere.com/pages/DeployExistingDjangoProject/), [reload via WSGI file](https://help.pythonanywhere.com/pages/ReloadWebApp/), [background management commands](https://help.pythonanywhere.com/pages/DjangoManagementCommands/).
+Update `PUBLIC_URL`, `DJANGO_ALLOWED_HOSTS` and the exact `PA_WSGI_FILE` path in `.env`, then run the update command. `PUBLIC_URL` supplies CSRF trusted origins and notification links. Existing SMS/email links to the temporary domain will need a redirect web app or a fresh notification; plan that transition before removing the temporary address. Browser push subscriptions belong to the old origin and must be enabled again on the new domain.
+
+Sources: [custom PythonAnywhere subdomains](https://help.pythonanywhere.com/pages/CustomPythonAnywhereSubdomains), [Django deployment](https://help.pythonanywhere.com/pages/DeployExistingDjangoProject/), [changing a web app domain](https://help.pythonanywhere.com/pages/UsingANewDomainForExistingWebApp).

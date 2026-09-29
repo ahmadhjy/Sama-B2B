@@ -14,7 +14,7 @@ from .models import User, AIBudget
 
 @skipUnless(connection.vendor=='postgresql','Requires PostgreSQL row locks; CI supplies PostgreSQL.')
 @override_settings(DEBUG=True,ACCOUNTING_ENABLED=False,AI_ENABLED=False,EMAIL_ENABLED=False,IMAP_ENABLED=False,
-    VAPID_PRIVATE_KEY='',VAPID_PUBLIC_KEY='',PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+    VAPID_PRIVATE_KEY='',VAPID_PUBLIC_KEY='',PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],SMS_ENABLED=False)
 class ConcurrencyTests(TransactionTestCase):
     setUp=fixtures.PortalTests.setUp
     user=fixtures.PortalTests.user

@@ -8,7 +8,7 @@ from django.utils import timezone
 from portal.accounting import sync_companies
 from portal.mailbox import fetch_mail
 from portal.models import WorkerState, RateLimit
-from portal.notifications import process_deliveries
+from portal.notifications import process_deliveries, check_sms_statuses
 from portal.workflow import expire_quotes
 
 class Command(BaseCommand):
@@ -41,6 +41,7 @@ class Command(BaseCommand):
                 issues=[]
                 if time.monotonic()-last_sync>=60:
                     tasks=[('quote_expiry',expire_quotes)]
+                    if settings.SMS_ENABLED: tasks.append(('sms_reports',check_sms_statuses))
                     if settings.ACCOUNTING_ENABLED: tasks.append(('accounting_sync',sync_companies))
                     if settings.IMAP_ENABLED: tasks.append(('incoming_mail',fetch_mail))
                     for name,task in tasks:

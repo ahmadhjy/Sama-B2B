@@ -90,7 +90,16 @@ IMAP_PORT = 993
 VAPID_PRIVATE_KEY = env('VAPID_PRIVATE_KEY')
 VAPID_PUBLIC_KEY = env('VAPID_PUBLIC_KEY')
 VAPID_SUBJECT = 'mailto:' + BUSINESS_EMAIL
-SMS_ENABLED = False  # Provider API documentation pending; never silently fall back to a guessed endpoint.
+SMS_ENABLED = flag('SMS_ENABLED', False)
+SMS_BASE_URL = env('SMS_BASE_URL', 'http://smppa3.broadnet.me:8080/websmpp').rstrip('/')
+SMS_USERNAME = env('SMS_USERNAME')
+SMS_PASSWORD = env('SMS_PASSWORD')
+SMS_SENDER_ID = env('SMS_SENDER_ID')
+SMS_ALLOW_HTTP = flag('SMS_ALLOW_HTTP', False)
+# Initial staging deployments may only notify explicitly listed test recipients.
+NOTIFICATION_TEST_MODE = flag('NOTIFICATION_TEST_MODE', True)
+NOTIFICATION_TEST_EMAILS = [v.strip().lower() for v in env('NOTIFICATION_TEST_EMAILS', 'info@hellosama.com').split(',') if v.strip()]
+NOTIFICATION_TEST_PHONES = [v.strip() for v in env('NOTIFICATION_TEST_PHONES').split(',') if v.strip()]
 REQUIRE_PASSPORT_COPY = flag('REQUIRE_PASSPORT_COPY', False)
 ALLOW_SELF_APPROVAL = flag('ALLOW_SELF_APPROVAL', True)
 if not DEBUG:

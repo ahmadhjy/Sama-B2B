@@ -30,7 +30,8 @@ def sanitize(text, user):
             text=text.replace(value,'[private information removed]')
     text=re.sub(r'sk-[A-Za-z0-9_-]+','[credential removed]',text)
     text=re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}','[email removed]',text)
-    text=re.sub(r'\+?\d[\d ()-]{7,}\d','[number removed]',text)
+    # ISO travel dates are not phone numbers; preserve them for the editable summary.
+    text=re.sub(r'\+?\d[\d ()-]{7,}\d',lambda m:m.group() if re.fullmatch(r'\d{4}-\d{2}-\d{2}',m.group()) else '[number removed]',text)
     text=re.sub(r'(?i)(passport\s*(?:number|no\.?|#)\s*[:=]?\s*)[A-Z0-9-]+',r'\1[removed]',text)
     return text
 

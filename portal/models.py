@@ -195,6 +195,9 @@ class Delivery(models.Model):
     available_at = models.DateTimeField(default=timezone.now)
     locked_at = models.DateTimeField(null=True, blank=True)
     error = models.CharField(max_length=120, blank=True)
+    provider_message_id = models.CharField(max_length=80, blank=True)
+    provider_status = models.CharField(max_length=24, blank=True)
+    provider_checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 class PushSubscription(models.Model):
