@@ -1,6 +1,8 @@
 # Build and validation status
 
-Updated 29 September 2026. Source repository: https://github.com/ahmadhjy/Sama-B2B. The application is prepared for a separate PythonAnywhere web app; it has not been deployed there yet.
+Updated 30 September 2026. Source repository: https://github.com/ahmadhjy/Sama-B2B. The application is prepared for a separate PythonAnywhere web app; deployment there is not complete yet.
+
+HelloSama now pins Django 4.2.30 for the selected PostgreSQL 12 host. Both release lines are outside upstream security support; the project owner explicitly selected this compatibility configuration. See the deployment guide for the runtime support note. Accounting dependencies are unchanged.
 
 ## Included
 
@@ -16,15 +18,15 @@ Updated 29 September 2026. Source repository: https://github.com/ahmadhjy/Sama-B
 
 ## Verified locally
 
-- 83 portal tests passed locally; three PostgreSQL-only concurrency tests are skipped locally. GitHub Actions runs the full 86-test suite against PostgreSQL 16.
+- 83 portal tests passed locally on Django 4.2.30; three PostgreSQL-only concurrency tests are skipped locally. GitHub Actions runs the full 86-test suite against PostgreSQL 12 and 16; the workflow results record each run.
 - 24 accounting/bridge tests passed, including a real signed HTTP roundtrip between separate Django applications and isolated databases.
 - The roundtrip verified owner creation by the worker, unchanged account/password sign-in, password reset, idempotent sync, company disabling for owner/employees access restoration, and owner creation initiated in HelloSama that immediately creates the same working login in accounting.
 - The live OpenAI model access check passed. Public research returned a Tourism Authority of Thailand citation and the generated summary passed the request form's validation with correct ISO dates and traveller count. The two calls totalled approximately $0.011369.
 - IONOS SMTP STARTTLS and IMAP TLS authentication passed. No live email was sent; the mailbox was not modified.
 - SMS authentication/balance passed (29,901 credits at the time checked). Submission formats, rejection handling, uncertain outcomes, short authenticated links, recipient restrictions and delivery-report transitions passed automated tests.
-- Production Django checks for the temporary subdomain, migration consistency, Python compilation and deployment script syntax passed.
+- Production Django checks for the temporary subdomain, migration consistency, dependency checks and deployment script syntax passed on Django 4.2.30. No model or migration changes were needed for this version change.
 - The files library, image preview, return-to-message link, and company account screens passed desktop/mobile browser checks.
-- The complete browser journey passed: request submission, sales claiming, quotation, three approvals, booking and confirmation; desktop/mobile checks reported no page JavaScript errors or horizontal overflow.
+- The complete browser journey passed again on Django 4.2.30: request submission, sales claiming, quotation, three approvals, booking and confirmation; desktop/mobile checks reported no page JavaScript errors or horizontal overflow.
 - PostgreSQL verification is recorded on each pushed commit in [GitHub Actions](https://github.com/ahmadhjy/Sama-B2B/actions).
 
 The SMS HTTPS endpoints failed certificate/protocol checks. The documented HTTP endpoint works and is explicitly configurable; portal OTP does not secure that transport. A provider-approved sender and a controlled test mobile number are still required for handset delivery testing.

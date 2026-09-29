@@ -4,6 +4,14 @@ Repository: https://github.com/ahmadhjy/Sama-B2B
 
 HelloSama uses a separate web app, virtual environment and PostgreSQL database. Keep the existing accounting app and its database in place. The plan needs another web app and an always-on task slot.
 
+## Runtime compatibility
+
+HelloSama pins **Django 4.2.30** with Python 3.12 for this account's **PostgreSQL 12** server. This was explicitly selected by the project owner on 30 September 2026. Django 4.2 reached upstream end of security support on 7 April 2026, and PostgreSQL 12 on 21 November 2024. Compatibility does not imply ongoing security maintenance; plan to move this app to maintained versions when hosting permits. CI exercises both PostgreSQL 12 and 16.
+
+The existing HelloSama web app can be reused. Its isolated virtual environment receives the pinned version through the update command; recreating the web app or changing the accounting environment is unnecessary. Initial `migrate` creates HelloSama's tables in its own new database, without moving existing accounting data.
+
+References: [Django support lifecycle](https://www.djangoproject.com/download/), [PostgreSQL support lifecycle](https://www.postgresql.org/support/versioning/).
+
 ## 1. Start on a temporary subdomain
 
 For the existing PythonAnywhere username `Samatours2026`, use:

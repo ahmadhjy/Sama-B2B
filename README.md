@@ -32,7 +32,9 @@ Open `http://127.0.0.1:8765`. Demo accounts are fictional and the seed command p
 
 Tests mock external services and use a separate temporary test database. For browser checks, install `requirements-dev.txt`, run `python manage.py seed_showcase`, then run `python scripts/browser_smoke.py` with the local preview running. Browser checks use only fictional demo accounts, including the three showcase approvers. Screenshots go to ignored `test-results/`.
 
-GitHub Actions runs the same suite on PostgreSQL, including concurrent claiming, approvals and budget reservations. Those three tests are intentionally skipped with SQLite; a SQLite pass is not a claim that PostgreSQL row-lock behavior was exercised locally.
+GitHub Actions runs the same suite on PostgreSQL 12 and 16, including concurrent claiming, approvals and budget reservations. Those three tests are intentionally skipped with SQLite; a SQLite pass is not a claim that PostgreSQL row-lock behavior was exercised locally.
+
+The deployment currently pins Django 4.2.30 for the account's PostgreSQL 12 compatibility. Both release lines are outside upstream security support; see the deployment guide's runtime compatibility note.
 
 ## Application modules
 

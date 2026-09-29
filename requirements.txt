@@ -1,4 +1,4 @@
-Django>=5.2,<5.3
+Django==4.2.30
 psycopg[binary]>=3.2,<4
 requests>=2.32.4,<3
 reportlab>=4.4,<5
