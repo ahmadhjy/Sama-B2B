@@ -98,7 +98,10 @@ class CompanyFilesTests(TestCase):
         pdf = self.requester.passport_files.first()
         response = self.client.get(reverse('attachment', args=[pdf.pk])+'?preview=1')
         self.assertTrue(response['Content-Disposition'].startswith('attachment;'))
-        response.close()
+        # Consume through the test client's streaming wrapper. Closing the
+        # response directly sends request_finished inside TestCase's database
+        # transaction and prematurely closes a PostgreSQL connection.
+        self.assertTrue(b''.join(response.streaming_content).startswith(b'%PDF-'))
         self.signin(self.outsider)
         self.assertEqual(self.client.get(reverse('attachment', args=[image.pk])+'?preview=1').status_code, 404)
         self.signin(self.sales2)
