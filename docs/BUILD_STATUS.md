@@ -16,14 +16,15 @@ Updated 29 September 2026. Source repository: https://github.com/ahmadhjy/Sama-B
 
 ## Verified locally
 
-- 70 portal tests passed; the three PostgreSQL-only concurrency tests are skipped on local SQLite and run in GitHub Actions.
+- 70 portal tests passed locally. All 73 passed against PostgreSQL 16 in GitHub Actions, including all three concurrency tests.
 - 19 accounting/bridge tests passed, including a real signed HTTP roundtrip between separate Django applications and isolated databases.
 - The roundtrip verified owner creation by the worker, unchanged account/password sign-in, password reset, idempotent sync, company disabling for owner/employees and access restoration.
 - The live OpenAI model access check passed. Public research returned a Tourism Authority of Thailand citation and the generated summary passed the request form's validation with correct ISO dates and traveller count. The two calls totalled approximately $0.011369.
 - IONOS SMTP STARTTLS and IMAP TLS authentication passed. No live email was sent; the mailbox was not modified.
 - SMS authentication/balance passed (29,901 credits at the time checked). Submission formats, rejection handling, uncertain outcomes, short authenticated links, recipient restrictions and delivery-report transitions passed automated tests.
 - Production Django checks for the temporary subdomain, migration consistency, Python compilation and deployment script syntax passed.
-- Browser journey and the PostgreSQL GitHub Actions result are recorded with the release verification below.
+- The complete browser journey passed: request submission, sales claiming, quotation, three approvals, booking and confirmation; desktop/mobile checks reported no page JavaScript errors or horizontal overflow.
+- PostgreSQL release verification passed: [GitHub Actions run 36618948567](https://github.com/ahmadhjy/Sama-B2B/actions/runs/36618948567), application commit `9a8088a`.
 
 The SMS HTTPS endpoints failed certificate/protocol checks. The documented HTTP endpoint works and is explicitly configurable; portal OTP does not secure that transport. A provider-approved sender and a controlled test mobile number are still required for handset delivery testing.
 
