@@ -71,7 +71,7 @@ def dashboard(request):
     approvals=Approval.objects.filter(user=request.user,decision='pending',quote__superseded=False,quote__valid_until__gt=timezone.now(),quote__request__status='awaiting_approval').select_related('quote__request')
     context={'recent':recent,'total':qs.count(),'active_count':qs.exclude(status__in=['closed','cancelled']).count(),
              'confirmed_count':qs.filter(status__in=['confirmed','closed']).count(),'approval_count':approvals.count(),
-             'approvals':approvals[:4], 'counts':counts,'page_title':'Overview'}
+             'approvals':approvals[:4], 'counts':counts,'page_title':'Overview' if request.user.is_sama else 'Home'}
     if request.user.is_sama and request.user.role in ('sales','ceo'):
         context['queue_count']=TravelRequest.objects.filter(assignee__isnull=True,status='pending').count()
     return render(request,'portal/dashboard.html',context)
@@ -115,7 +115,7 @@ def new_request(request):
             req=workflow.submit_request(request.user,draft.pk,form.cleaned_data)
             return redirect('request_detail',req_id=req.pk)
         except ValidationError as exc: flash_error(request,exc)
-    return render(request,'portal/new_request.html',{'page_title':'Plan a trip','draft':draft,'form':form,'chat':draft.messages,
+    return render(request,'portal/new_request.html',{'page_title':'New travel request','draft':draft,'form':form,'chat':draft.messages,
         'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary) or request.method=='POST'})
 
 @login_required
@@ -137,7 +137,7 @@ def assistant(request,draft_id):
         draft=get_object_or_404(Draft.objects.select_for_update(),pk=draft_id,user=request.user)
         if TravelRequest.objects.filter(source_draft=draft).exists(): return JsonResponse({'error':'This request has already been submitted.'},status=409)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now(): return JsonResponse({'error':'Please wait for the current reply.'},status=409)
-        if len(draft.messages)>=40: return JsonResponse({'error':'Please generate or edit your request summary now.'},status=400)
+        if not summary and len(draft.messages)>=40: return JsonResponse({'error':'Please select Review my request below, or fill in the form yourself.'},status=400)
         if not summary: draft.messages.append({'role':'user','content':content})
         draft.ai_busy_until=timezone.now()+timedelta(seconds=110);draft.save()
         conversation=list(draft.messages)

@@ -113,8 +113,14 @@ class RequestForm(forms.ModelForm):
         fields = ['title','origin','destination','departure','return_date','travellers','budget','requirements','traveller_details']
         widgets = {'departure': forms.DateInput(attrs={'type':'date'}), 'return_date': forms.DateInput(attrs={'type':'date'}),
                    'requirements': forms.Textarea(attrs={'rows':4}), 'traveller_details': forms.Textarea(attrs={'rows':3})}
-        labels = {'departure':'Departure date', 'return_date':'Return date (optional)', 'budget':'Budget (optional)',
-                  'traveller_details':'Traveller names / passport details (private; optional if you are the traveller)'}
+        labels = {'title':'Trip name', 'origin':'Travelling from', 'destination':'Travelling to',
+                  'departure':'Departure date', 'return_date':'Return date (optional)',
+                  'travellers':'Total passengers (including children and infants)', 'budget':'Budget (optional)',
+                  'requirements':'Passenger breakdown and trip details',
+                  'traveller_details':'Other travellers’ details (private, optional)'}
+        help_texts = {'title':'For example: Beirut to Bangkok',
+                      'requirements':'Include adults, children and infants, the number of days or nights, and any hotel or transfer needs.',
+                      'traveller_details':'Your own passport is already in your profile. Add other travellers only when needed.'}
     def clean(self):
         data = super().clean()
         departure, returning = data.get('departure'), data.get('return_date')

@@ -4,10 +4,13 @@ import os
 import re
 from datetime import date,timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE='http://127.0.0.1:8765'
+BASE=os.environ.get('HELLOSAMA_TEST_URL','http://127.0.0.1:8765')
+if urlparse(BASE).hostname not in ('127.0.0.1','localhost'):
+    raise SystemExit('Run only against a local demo preview.')
 OUTPUT=ROOT/'test-results';OUTPUT.mkdir(exist_ok=True)
 password=os.environ.get('HELLOSAMA_DEMO_PASSWORD','')
 if not password:
@@ -36,15 +39,17 @@ with sync_playwright() as p:
     page.goto(BASE+'/login/');capture('01-login-desktop')
     sign_in('demo.owner');capture('02-dashboard-desktop')
     page.set_viewport_size({'width':390,'height':844});capture('03-dashboard-mobile')
-    page.locator('#menu-toggle').click();page.get_by_role('link',name='My requests',exact=False).click()
+    page.locator('#menu-toggle').click();page.get_by_role('link',name='Company requests',exact=False).click()
     page.wait_for_url('**/requests/');capture('04-requests-mobile')
     page.set_viewport_size({'width':1440,'height':1050})
     page.goto(BASE+'/requests/new/');capture('05-trip-planner')
+    page.locator('#manual-request').click()
     page.locator('#id_title').fill('Browser acceptance journey')
     page.locator('#id_origin').fill('Beirut');page.locator('#id_destination').fill('Bangkok')
     page.locator('#id_departure').fill((date.today()+timedelta(days=40)).isoformat())
     page.locator('#id_return_date').fill((date.today()+timedelta(days=46)).isoformat())
-    page.locator('#id_travellers').fill('2');page.locator('#id_budget').fill('3000 USD total')
+    page.locator('#id_travellers').fill('2')
+    page.locator('#extra-details > summary').click();page.locator('#id_budget').fill('3000 USD total')
     page.locator('#id_requirements').fill('Central hotel and airport transfers. Fictional browser acceptance test.')
     page.get_by_role('button',name='Submit request',exact=False).click()
     page.wait_for_url(re.compile(r'.*/requests/[0-9a-f-]+/$'))

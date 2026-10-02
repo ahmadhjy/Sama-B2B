@@ -64,3 +64,16 @@ The monthly allowance is shared across the entire application and capped at $20.
 - PDF/JPG/PNG only, 10 MB per file, five per message.
 - No automatic document/history deletion until the retention policy is agreed.
 - Email, push and SMS active only when configured; initial staging notifications are restricted to test recipients.
+
+
+## Client navigation and guided requests — October 2026
+
+Company users now see Home and a direct New travel request menu entry. Company owners see Company requests and Company users; individual requesters retain My requests. Dashboard shortcuts open existing pages without changing permissions.
+
+In New travel request, describe the trip in the chat, then select **Review my request** directly below the conversation. The assistant asks only for missing essentials, never asks for a budget, and keeps replies short. It collects departure city, destinations, dates/duration and adults/children/infants. Passenger breakdown and duration are preserved in the trip details field; total passengers includes infants.
+
+The review button fills an editable form and brings it into view. Check it, fill required gaps and select **Submit request to Sama**. No request enters the queue until that final action. You can use **Fill in the form myself** at any time. The manual form remains available if AI is unavailable. Additional optional fields are collapsed to keep the main form focused. Generating again after editing asks before replacing trip edits and preserves private traveller details.
+
+Existing requests now show brief next-step prompts for quotations, approvals and booking progress. The quotation prompt links directly to the quotation, including on mobile.
+
+For email/SMS activation, see [ACTIVATE_NOTIFICATIONS.md](ACTIVATE_NOTIFICATIONS.md). Configuration and actual delivery must be checked separately; the app does not assume messages arrived merely because credentials exist.

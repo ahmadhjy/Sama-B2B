@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connection
+from django.utils import timezone
+from datetime import timedelta
 from portal.models import WorkerState, User
 
 class Command(BaseCommand):
@@ -16,7 +18,7 @@ class Command(BaseCommand):
             'SMS credentials and sender configured':bool(settings.SMS_USERNAME and settings.SMS_PASSWORD and settings.SMS_SENDER_ID),
             'SMS approval alerts enabled':settings.SMS_ENABLED,
             'Sama administrator exists':User.objects.filter(role='ceo',is_active=True,company__isnull=True).exists(),
-            'Worker has run':WorkerState.objects.filter(name='worker').exists()}
+            'Worker heartbeat within the last 2 minutes':WorkerState.objects.filter(name='worker',updated_at__gte=timezone.now()-timedelta(minutes=2)).exists()}
         for label,ready in checks.items():
             self.stdout.write(f'{"OK" if ready else "PENDING"}: {label}')
         self.stdout.write('Notification recipients: '+('test allowlists only; push suppressed' if settings.NOTIFICATION_TEST_MODE else 'live recipients'))

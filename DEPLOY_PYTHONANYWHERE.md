@@ -175,3 +175,7 @@ Sources: [custom PythonAnywhere subdomains](https://help.pythonanywhere.com/page
 Install the updated accounting companion as described above when deploying this release. Sama CEOs can then use **Company accounts → Create company owner** in HelloSama with the accounting client code. A client record must exist in accounting first, but enabling its portal login can be done from either dashboard. The same code/password works in both; existing logins require their current password and are never silently reset.
 
 Every company user must upload a passport copy before starting a request. This requirement is built in; an old `REQUIRE_PASSPORT_COPY=False` environment line no longer disables it and can be removed. Local showcase users receive fictional placeholder PDFs; do not copy demo uploads to production. The new **Files & documents** request tab shares the existing encrypted private storage and needs no extra public media mapping.
+
+## Activating notifications after the initial deployment
+
+Follow [ACTIVATE_NOTIFICATIONS.md](docs/ACTIVATE_NOTIFICATIONS.md) for exact server settings, provider checks, worker setup, controlled deliveries and switching to live recipients.

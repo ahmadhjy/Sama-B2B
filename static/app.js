@@ -53,7 +53,43 @@ if (planner) {
   const input = document.querySelector('#chat-input');
   const summary = document.querySelector('#generate-summary');
   const error = document.querySelector('#assistant-error');
+  const review = document.querySelector('#request-review');
+  const requestForm = document.querySelector('#request-form');
+  const submit = document.querySelector('#submit-request');
+  const manual = document.querySelector('#manual-request');
+  const available = planner.dataset.available === 'true';
+  const hint = document.querySelector('#planner-next-hint');
+  let edited = false;
+  let hasConversation = !!conversation.querySelector('.outgoing');
   let busy = false;
+  review.hidden = available && planner.dataset.reviewOpen !== 'true';
+  function showReview(text, focus = true) {
+    review.hidden = false;
+    if (text) document.querySelector('#review-status').textContent = text;
+    document.querySelector('#plan-step-chat').removeAttribute('aria-current');
+    document.querySelector('#plan-step-review').setAttribute('aria-current', 'step');
+    if (focus) {
+      document.querySelector('#review-title').focus({preventScroll:true});
+      review.scrollIntoView({behavior:'smooth',block:'start'});
+    }
+  }
+  if (!review.hidden) showReview('', false);
+  const validationError = document.querySelector('#request-errors');
+  if (validationError) {
+    validationError.focus({preventScroll:true});
+    review.scrollIntoView({block:'start'});
+  }
+  requestForm.addEventListener('input', () => { edited = true; });
+  manual.addEventListener('click', () => showReview('Fill in the trip details, then select Submit request to Sama.'));
+  requestForm.addEventListener('submit', event => {
+    if (busy) {event.preventDefault();return;}
+    submit.disabled = true;
+    submit.textContent = 'Submitting your request…';
+  });
+  window.addEventListener('pageshow', () => {submit.disabled = false;submit.textContent = 'Submit request to Sama →';});
+  requestForm.addEventListener('invalid', event => {
+    if (event.target.closest('details')) event.target.closest('details').open = true;
+  }, true);
   function append(message) {
     const element = document.createElement('div');
     element.className = 'chat-message ' + (message.role === 'user' ? 'outgoing' : 'ai');
@@ -75,28 +111,42 @@ if (planner) {
     conversation.append(element); conversation.scrollTop=conversation.scrollHeight;
   }
   function setBusy(value) {
-    busy=value; form.querySelector('button').disabled=value; summary.disabled=value;
+    busy=value; form.querySelector('button').disabled=value || !available;
+    summary.disabled=value || !available || !hasConversation;
+    submit.disabled=value;
+    manual.disabled=value;
+    requestForm.setAttribute('aria-busy', String(value));
     error.textContent=value?'Your assistant is working on it…':'';
   }
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || !input.value.trim()) return;
-    const message=input.value.trim(); append({role:'user',content:message}); input.value='';setBusy(true);
-    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); setBusy(false); }
+    const message=input.value.trim(); append({role:'user',content:message}); hasConversation=true;input.value='';setBusy(true);
+    if (!review.hidden) document.querySelector('#review-status').textContent='You have added to the chat. Update the form yourself or select Review my request again before submitting.';
+    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); setBusy(false);hint.textContent='Continue chatting, or click Review my request to prepare your form. You can fill any missing details there.'; }
     catch (err) {setBusy(false);error.textContent=err.message;}
   });
   summary.addEventListener('click',async () => {
-    if (busy) return;setBusy(true);
+    if (busy) return;
+    if (input.value.trim()) {error.textContent='Send your last message first so it can be included in the request.';input.focus();return;}
+    if (edited && !window.confirm('Generate a new form from the chat? This will replace your edits to the trip details. Private traveller details will be kept.')) return;
+    setBusy(true);
+    const editableFields=[...requestForm.querySelectorAll('input:not([type=hidden]),textarea')];
+    editableFields.forEach(field=>{field.readOnly=true;});
     try {
       const result=await postJSON(planner.dataset.aiUrl,{action:'summary'});
-      Object.entries(result.summary).forEach(([key,value])=>{
-        const field=document.querySelector(`#request-form [name="${key}"]`);
-        if (field) field.value=value;
+      ['title','origin','destination','departure','return_date','travellers','budget','requirements'].forEach(key=>{
+        const field=requestForm.elements.namedItem(key);
+        if (field) field.value=result.summary[key] || '';
       });
-      setBusy(false);error.textContent='Your summary is ready. Review the details, fill any gaps, then submit.';
-      document.querySelector('.request-summary').scrollIntoView({behavior:'smooth',block:'start'});
+      edited=false;
+      if (requestForm.elements.namedItem('budget').value) document.querySelector('#extra-details').open=true;
+      setBusy(false);error.textContent='Your form is ready below. It has not been sent yet.';
+      showReview('Your form is ready. Check the details, fill any gaps, then select Submit request to Sama.');
     } catch (err) {setBusy(false);error.textContent=err.message;}
+    finally {editableFields.forEach(field=>{field.readOnly=false;});}
   });
   conversation.scrollTop=conversation.scrollHeight;
+  summary.disabled = !available || !hasConversation;
 }
 function pushStatus(text) {document.querySelectorAll('.push-status').forEach(el=>el.textContent=text);}
 document.querySelectorAll('.push-enable').forEach(button=>button.addEventListener('click',async()=>{
