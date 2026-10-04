@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -326,7 +326,7 @@ def team(request):
         members=User.objects.select_related('company').all().order_by('company__name','first_name')
     elif request.user.role=='owner': members=User.objects.filter(company=request.user.company).order_by('first_name')
     else: raise PermissionDenied()
-    return render(request,'portal/team.html',{'page_title':'People & access','members':members})
+    return render(request,'portal/team.html',{'page_title':'People & access','members':members.filter(removed_at__isnull=True)})
 
 @login_required
 @sensitive_post_parameters('password')
@@ -334,7 +334,7 @@ def team_edit(request,user_id=None):
     actor=request.user
     if not (is_ceo(actor) or actor.role=='owner'): raise PermissionDenied()
     qs=User.objects.all() if is_ceo(actor) else User.objects.filter(company=actor.company)
-    member=get_object_or_404(qs,pk=user_id) if user_id else User(company=actor.company if not actor.is_sama else None)
+    member=get_object_or_404(qs,pk=user_id,removed_at__isnull=True) if user_id else User(company=actor.company if not actor.is_sama else None)
     form=TeamForm(request.POST or None,request.FILES or None,instance=member,actor=actor)
     if request.method=='POST' and form.is_valid():
         try:
@@ -343,6 +343,8 @@ def team_edit(request,user_id=None):
             with transaction.atomic():
                 if member.pk:
                     original=User.objects.select_for_update().get(pk=member.pk)
+                    if original.removed_at:
+                        raise ValidationError('This account has been removed. Refresh People & access.')
                     changed_approval=(original.can_approve and not form.cleaned_data.get('can_approve',original.can_approve)) or (original.is_active and not form.cleaned_data.get('is_active',original.is_active))
                     pending=Approval.objects.filter(user=original,decision='pending',quote__superseded=False,quote__request__status='awaiting_approval').exists()
                     if changed_approval and pending:
@@ -361,6 +363,68 @@ def team_edit(request,user_id=None):
     return render(request,'portal/form.html',{'page_title':'Edit user' if user_id else 'Add user','heading':member.label if user_id else 'Give your team the right access.',
         'description':'First name, last name and an initial password are required. The user completes missing profile information at first login. Approval permission is independent of role.',
         'form':form,'button':'Save user','back':reverse('team')})
+
+@login_required
+@sensitive_post_parameters('new_password1', 'new_password2')
+def team_password(request, user_id):
+    if not is_ceo(request.user): raise PermissionDenied()
+    member = get_object_or_404(User, pk=user_id, removed_at__isnull=True)
+    form = SetPasswordForm(member, request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        try:
+            if member.is_primary:
+                if not member.company_id or not member.company.erp_id:
+                    raise ValidationError('This owner has no accounting connection. Contact the system administrator.')
+                result = bridge_call('owner-password', {'company_id': str(member.company.erp_id),
+                    'password': form.cleaned_data['new_password1']})
+                if not result or result.get('id') != str(member.company.erp_id) or not result.get('version'):
+                    raise AccountingUnavailable('Accounting did not confirm the password change.')
+                from .accounting import provision
+                provision(result)
+            else:
+                form.save()
+                if member.pk == request.user.pk:
+                    update_session_auth_hash(request, member)
+            Audit.objects.create(actor=request.user, action='user_password_reset', target=member.username)
+            messages.success(request, 'Password changed.' + (' The new password works in both portals.' if member.is_primary else ''))
+            return redirect('team')
+        except (ValidationError, AccountingUnavailable) as exc:
+            form.add_error(None, str(exc) if isinstance(exc, AccountingUnavailable) else exc)
+    return render(request, 'portal/form.html', {'page_title': 'Change password', 'heading': member.label,
+        'description': 'Set a new password. Existing passwords cannot be viewed.' +
+            (' This changes the shared Accounting and HelloSama login.' if member.is_primary else ''),
+        'form': form, 'button': 'Change password', 'back': reverse('team')})
+
+
+@login_required
+def team_delete(request, user_id):
+    if not is_ceo(request.user): raise PermissionDenied()
+    member = get_object_or_404(User, pk=user_id, removed_at__isnull=True)
+    if request.method == 'POST':
+        try:
+            with transaction.atomic():
+                member = User.objects.select_for_update().get(pk=member.pk)
+                if member.pk == request.user.pk:
+                    raise ValidationError('You cannot delete your own account.')
+                if request.POST.get('confirm_username') != member.username:
+                    raise ValidationError('Enter the exact login ID to confirm deletion.')
+                if Approval.objects.filter(user=member, decision='pending', quote__superseded=False,
+                        quote__request__status='awaiting_approval').exists():
+                    raise ValidationError('Resolve this user’s pending approvals before deleting their account.')
+                if member.assigned_requests.exclude(status__in=['confirmed', 'closed', 'cancelled', 'rejected', 'expired']).exists():
+                    raise ValidationError('Complete or reassign this salesperson’s open requests first.')
+                member.removed_at = timezone.now()
+                member.is_active = False
+                member.save(update_fields=['removed_at', 'is_active'])
+                PushSubscription.objects.filter(user=member).delete()
+                Audit.objects.create(actor=request.user, action='user_access_removed', target=member.username,
+                    detail='HelloSama access removed; historical records retained.')
+            messages.success(request, 'Account removed from HelloSama. Request and approval history has been kept.')
+            return redirect('team')
+        except ValidationError as exc:
+            flash_error(request, exc)
+    return render(request, 'portal/user_delete.html', {'page_title': 'Delete account', 'member': member})
+
 
 @login_required
 def notification_list(request):

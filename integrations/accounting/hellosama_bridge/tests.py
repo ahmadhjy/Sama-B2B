@@ -65,6 +65,18 @@ class BridgeTests(TestCase):
         self.assertEqual(self.call('finance',{'company_id':str(self.company.pk),'kind':'statement'}).status_code,404)
         self.assertFalse(self.call('status',{'company_id':str(self.company.pk)}).json()['active'])
 
+    def test_owner_password_reset(self):
+        old = self.call('status', {'company_id': str(self.company.pk)}).json()['version']
+        response = self.call('owner-password', {'company_id': str(self.company.pk), 'password': 'Replacement!73219'})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(response.json()['version'], old)
+        self.assertNotIn('password', response.json())
+        self.assertEqual(self.call('authenticate', {'account_number': 'BRIDGE1', 'password': 'PortalPass!234'}).status_code, 401)
+        self.assertEqual(self.call('authenticate', {'account_number': 'BRIDGE1', 'password': 'Replacement!73219'}).status_code, 200)
+        self.assertEqual(self.call('authenticate', {'account_number': 'BRIDGE2', 'password': 'PortalPass!234'}).status_code, 200)
+        self.assertEqual(self.call('owner-password', {'company_id': str(self.company.pk), 'password': 'short'}).status_code, 400)
+        self.assertEqual(self.client.post('/hellosama-api/owner-password/', {}, content_type='application/json').status_code, 401)
+
     def test_invoice_scope_and_no_internal_costs(self):
         result=self.call('finance',{'company_id':str(self.company.pk),'kind':'invoice','id':str(self.invoice.pk)})
         self.assertEqual(result.status_code,200)

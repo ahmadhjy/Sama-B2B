@@ -30,6 +30,8 @@ def bridge_call(action, payload=None):
                      'X-HelloSama-Nonce': nonce, 'X-HelloSama-Signature': signature}, timeout=(5, 20), allow_redirects=False)
         if response.status_code == 401:
             return None
+        if action == 'owner-password' and response.status_code == 400:
+            raise ValidationError('Accounting rejected this password. Use at least 10 characters without leading or trailing spaces, avoiding common or personal information.')
         if action == 'owner-account' and response.status_code in (400, 404, 409):
             errors = {
                 'unknown_client': 'Client code not found. Add the client in Sama Accounting first, then use their client code here.',
@@ -50,7 +52,7 @@ def provision(item):
     company, _ = Company.objects.update_or_create(erp_id=item['id'], defaults={
         'name': item['name'], 'account_number': item['account_number'], 'active': item['active'],
         'identity_version': item['version'], 'synced_at': timezone.now()})
-    primary = User.objects.filter(company=company, is_primary=True).first()
+    primary = User.objects.select_for_update().filter(company=company, is_primary=True).first()
     if primary is None:
         if User.objects.filter(username__iexact=item['account_number']).exists():
             raise AccountingUnavailable('This company login needs administrator attention.')
@@ -59,7 +61,7 @@ def provision(item):
         primary.set_unusable_password()
     else:
         primary.username = item['account_number']
-    primary.is_active = item['active']
+    primary.is_active = item['active'] and primary.removed_at is None
     primary.save()
     return primary
 

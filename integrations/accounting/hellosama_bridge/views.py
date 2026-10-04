@@ -176,6 +176,23 @@ def endpoint(request,action):
             response=JsonResponse({'error':exc.code},status=exc.status)
             response['Cache-Control']='no-store'
             return response
+    elif action=='owner-password':
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+        password = data.get('password')
+        if not isinstance(password, str) or not 10 <= len(password) <= 1024 or password != password.strip():
+            return JsonResponse({'error': 'invalid_password'}, status=400)
+        with transaction.atomic():
+            profile = get_profile(data.get('company_id'), active=False)
+            user = get_user_model().objects.select_for_update().get(pk=profile.user_id)
+            try:
+                validate_password(password, user)
+            except ValidationError:
+                return JsonResponse({'error': 'invalid_password'}, status=400)
+            user.set_password(password)
+            user.save(update_fields=['password'])
+            profile.user = user
+            result = company_data(profile)
     elif action=='companies':
         result={'companies':[company_data(p) for p in UserProfile.objects.filter(is_client_portal=True,client__isnull=False).select_related('user','client')]}
     else:

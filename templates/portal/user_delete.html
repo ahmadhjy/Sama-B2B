@@ -1,0 +1,10 @@
+{% extends 'base.html' %}{% block content %}
+<div class="page-heading"><div><h1>Delete account</h1><p>{{ member.label }} · {{ member.username }}</p></div></div>
+<section class="card form-card">
+<p>This removes this person’s HelloSama login and signs them out. Their conversations, requests and approval history are kept.</p>
+{% if member.is_primary %}<p>The accounting client, financial records and Accounting login remain unchanged. Other company users keep their access.</p>{% endif %}
+<form method="post">{% csrf_token %}
+<label for="confirm_username">Type the login ID <strong>{{ member.username }}</strong> to confirm</label>
+<input id="confirm_username" name="confirm_username" required autocomplete="off">
+<div class="form-actions"><a class="button secondary" href="{% url 'team' %}">Cancel</a><button class="button primary" type="submit">Delete HelloSama account</button></div>
+</form></section>{% endblock %}

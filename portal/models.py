@@ -33,6 +33,7 @@ class User(AbstractUser):
     company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.PROTECT, related_name='users')
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.REQUESTER)
     is_primary = models.BooleanField(default=False)
+    removed_at = models.DateTimeField(null=True, blank=True)
     can_approve = models.BooleanField(default=False)
     phone = models.CharField(max_length=30, blank=True)
     passport_number = EncryptedTextField(blank=True, max_length=50)

@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 urlpatterns = [
+    path('team/<int:user_id>/password/', views.team_password, name='team_password'),
+    path('team/<int:user_id>/delete/', views.team_delete, name='team_delete'),
     path('n/<int:note_id>/',views.notification_jump,name='notification_jump'),
     path('',views.dashboard,name='dashboard'),path('login/',views.sign_in,name='login'),path('logout/',views.sign_out,name='logout'),
     path('profile/',views.profile,name='profile'),path('password/',views.password_change,name='password_change'),

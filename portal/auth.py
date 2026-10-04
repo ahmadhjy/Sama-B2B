@@ -24,12 +24,14 @@ class CompanyBackend(ModelBackend):
         if not settings.ACCOUNTING_ENABLED or not username or password is None:
             return None
         existing = User.objects.filter(username__iexact=username).first()
-        if existing and not existing.is_primary:
+        if existing and (not existing.is_primary or existing.removed_at):
             return None
         data = bridge_call('authenticate', {'account_number': username, 'password': password})
         if not data or not data.get('active'):
             return None
         user = provision(data)
+        if not user.is_active:
+            return None
         if request:
             request.session['accounting_version'] = data['version']
         return user
@@ -42,7 +44,7 @@ class LocalBackend(ModelBackend):
         if not user:
             User().set_password(password)
             return None
-        if user.is_primary or not user.is_active or not user.check_password(password):
+        if user.is_primary or user.removed_at or not user.is_active or not user.check_password(password):
             return None
         if user.company_id and not check_company(user.company):
             return None
