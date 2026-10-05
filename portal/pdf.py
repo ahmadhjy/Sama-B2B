@@ -23,7 +23,7 @@ def document(title, subtitle, sections, rows=None, headers=None):
     if rows is not None:
         table_rows=[[para(v) for v in row] for row in ([headers]+rows if headers else rows)]
         if table_rows:
-            table=Table(table_rows,repeatRows=1 if headers else 0,hAlign='LEFT')
+            table=Table(table_rows,colWidths=[doc.width/len(table_rows[0])]*len(table_rows[0]),repeatRows=1 if headers else 0,hAlign='LEFT')
             table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#eaf2f8')),('VALIGN',(0,0),(-1,-1),'TOP'),
                 ('LINEBELOW',(0,0),(-1,-1),.4,colors.HexColor('#d7e1e9')),('LEFTPADDING',(0,0),(-1,-1),7),('RIGHTPADDING',(0,0),(-1,-1),7)]))
             story.append(table)

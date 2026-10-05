@@ -1,6 +1,13 @@
 from django.urls import path
 from . import views
+from . import client_views
 urlpatterns = [
+    path('travel/',client_views.travel_overview,name='travel_overview'),
+    path('travel/message/',client_views.travel_message,name='travel_message'),
+    path('requests/<uuid:req_id>/export/',client_views.request_export,name='request_export'),
+    path('requests/<uuid:req_id>/edit/',client_views.request_edit,name='request_edit'),
+    path('requests/<uuid:req_id>/remind/',client_views.remind_approvers,name='remind_approvers'),
+    path('requests/<uuid:req_id>/review/<uuid:quote_id>/',client_views.quick_approval,name='quick_approval'),
     path('team/<int:user_id>/password/', views.team_password, name='team_password'),
     path('team/<int:user_id>/delete/', views.team_delete, name='team_delete'),
     path('n/<int:note_id>/',views.notification_jump,name='notification_jump'),
@@ -9,6 +16,10 @@ urlpatterns = [
     path('team/',views.team,name='team'),path('team/new/',views.team_edit,name='team_new'),path('team/<int:user_id>/',views.team_edit,name='team_edit'),
     path('companies/',views.companies,name='companies'),path('companies/new/',views.company_create,name='company_create'),
     path('requests/',views.requests_list,name='requests'),path('requests/new/',views.new_request,name='new_request'),
+    path('drafts/new/',views.draft_new,name='draft_new'),
+    path('drafts/review/',views.drafts_review,name='drafts_review'),
+    path('drafts/<uuid:draft_id>/archive/',views.draft_archive,name='draft_archive'),
+    path('drafts/<uuid:draft_id>/save/',views.draft_save,name='draft_save'),
     path('queue/',views.queue,name='queue'),path('requests/<uuid:req_id>/claim/',views.claim,name='claim'),
     path('requests/<uuid:req_id>/',views.request_detail,name='request_detail'),
     path('requests/<uuid:req_id>/files/',views.request_files,name='request_files'),

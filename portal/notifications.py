@@ -26,6 +26,8 @@ def notify(req, text, event_key, *, users=None, actor=None, email=False, interna
         if actor and actor.pk == user.pk:
             continue
         url = f'/requests/{req.pk}/'
+        if approval_quote is not None:
+            url = f'/requests/{req.pk}/review/{approval_quote.pk}/'
         note = Notification.objects.create(user=user, request=req, text=text[:240], url=url)
         payload = {'text':text, 'url':url, 'reference':req.reference}
         if approval_quote is not None:

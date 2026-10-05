@@ -60,6 +60,7 @@ if (planner) {
   const available = planner.dataset.available === 'true';
   const hint = document.querySelector('#planner-next-hint');
   let edited = false;
+  let editVersion = 0;
   let hasConversation = !!conversation.querySelector('.outgoing');
   let busy = false;
   review.hidden = available && planner.dataset.reviewOpen !== 'true';
@@ -79,7 +80,36 @@ if (planner) {
     validationError.focus({preventScroll:true});
     review.scrollIntoView({block:'start'});
   }
-  requestForm.addEventListener('input', () => { edited = true; });
+  requestForm.addEventListener('input', () => { edited = true; editVersion += 1; });
+  window.addEventListener('beforeunload', event => {
+    if ((edited || input.value.trim() || requestForm.elements.namedItem('attachments')?.files.length) && !submit.disabled) {
+      event.preventDefault(); event.returnValue='';
+    }
+  });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault(); if (!busy && available) form.requestSubmit();
+    }
+  });
+  document.querySelectorAll('[data-chat-prompt]').forEach(button => button.addEventListener('click', () => {
+    input.value=button.dataset.chatPrompt; input.focus();
+  }));
+  document.querySelector('#save-draft')?.addEventListener('click', async event => {
+    if (busy || !requestForm.reportValidity()) return;
+    const button=event.currentTarget; button.disabled=true;
+    const savingVersion=editVersion;
+    try {
+      const body=new URLSearchParams();
+      new FormData(requestForm).forEach((value,key)=>{if(typeof value==='string' && key!=='traveller_details')body.append(key,value);});
+      const response=await fetch(planner.dataset.saveUrl,{method:'POST',credentials:'same-origin',body,headers:{'X-CSRFToken':csrf()}});
+      const result=await response.json();
+      if(!response.ok) throw new Error(result.error || 'Could not save this draft.');
+      if (editVersion===savingVersion) edited=!!requestForm.elements.namedItem('traveller_details').value;
+      error.textContent=editVersion===savingVersion
+        ? 'Reviewed trip details saved. Private details and selected files stay in this form until you submit.'
+        : 'The earlier details were saved. Save again to keep the changes you just made.';
+    } catch(err) {error.textContent=err.message;} finally {button.disabled=false;}
+  });
   manual.addEventListener('click', () => showReview('Fill in the trip details, then select Submit request to Sama.'));
   requestForm.addEventListener('submit', event => {
     if (busy) {event.preventDefault();return;}
@@ -97,6 +127,22 @@ if (planner) {
     label.textContent = message.role === 'user' ? 'You' : 'HelloSama assistant';
     const body = document.createElement('div'); body.className = 'message-body'; body.textContent = message.content;
     element.append(label,body);
+    if(message.options?.length){
+      const cards=document.createElement('div');cards.className='travel-options';
+      message.options.slice(0,2).forEach(option=>{
+        const card=document.createElement('div');card.className='travel-option';
+        const title=document.createElement('strong');title.textContent=option.label;
+        const detail=document.createElement('p');detail.textContent=option.detail;
+        const note=document.createElement('small');note.textContent='Published information · Sama verifies availability';
+        const choose=document.createElement('button');choose.type='button';choose.textContent='Choose this preference';
+        choose.addEventListener('click',()=>{input.value=`I prefer ${option.label}. ${option.detail} Please include this preference in my request for Sama to verify.`;input.focus();});
+        card.append(title,detail,note);
+        try {const url=new URL(option.source_url);if(['https:','http:'].includes(url.protocol)){
+          const link=document.createElement('a');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';link.textContent='View source';card.append(link);
+        }}catch(_){}
+        card.append(choose);cards.append(card);
+      });element.append(cards);
+    }
     if (message.sources?.length) {
       const sources = document.createElement('div'); sources.className = 'source-links';
       message.sources.forEach(source => {
@@ -115,6 +161,7 @@ if (planner) {
     summary.disabled=value || !available || !hasConversation;
     submit.disabled=value;
     manual.disabled=value;
+    document.querySelector('#save-draft').disabled=value;
     requestForm.setAttribute('aria-busy', String(value));
     error.textContent=value?'Your assistant is working on it…':'';
   }
@@ -131,19 +178,21 @@ if (planner) {
     if (edited && !window.confirm('Generate a new form from the chat? This will replace your edits to the trip details. Private traveller details will be kept.')) return;
     setBusy(true);
     const editableFields=[...requestForm.querySelectorAll('input:not([type=hidden]),textarea')];
+    const selects=[...requestForm.querySelectorAll('select')];
     editableFields.forEach(field=>{field.readOnly=true;});
+    selects.forEach(field=>{field.disabled=true;});
     try {
       const result=await postJSON(planner.dataset.aiUrl,{action:'summary'});
-      ['title','origin','destination','departure','return_date','travellers','budget','requirements'].forEach(key=>{
+      ['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements'].forEach(key=>{
         const field=requestForm.elements.namedItem(key);
-        if (field) field.value=result.summary[key] || '';
+        if (field) field.value=result.summary[key] || (key==='service_type'?'travel':'');
       });
-      edited=false;
+      edited=!!requestForm.elements.namedItem('traveller_details').value;
       if (requestForm.elements.namedItem('budget').value) document.querySelector('#extra-details').open=true;
       setBusy(false);error.textContent='Your form is ready below. It has not been sent yet.';
       showReview('Your form is ready. Check the details, fill any gaps, then select Submit request to Sama.');
     } catch (err) {setBusy(false);error.textContent=err.message;}
-    finally {editableFields.forEach(field=>{field.readOnly=false;});}
+    finally {editableFields.forEach(field=>{field.readOnly=false;});selects.forEach(field=>{field.disabled=false;});}
   });
   conversation.scrollTop=conversation.scrollHeight;
   summary.disabled = !available || !hasConversation;
@@ -176,3 +225,18 @@ if (document.querySelector('[data-unread]')) setInterval(async()=>{
   if (document.hidden) return;
   try {const response=await fetch('/api/notifications/'); if (response.ok) {const data=await response.json();document.querySelectorAll('[data-unread]').forEach(el=>el.textContent=data.unread);}}catch (_){}
 },60000);
+// Prompts fill the composer; the user chooses when to send.
+document.querySelectorAll('[data-message-prompt]').forEach(button=>button.addEventListener('click',()=>{
+  const input=document.querySelector('#message-body');
+  if(input){input.value=button.dataset.messagePrompt;input.focus();}
+}));
+document.querySelector('[data-request-history]')?.addEventListener('change',event=>{location.href=event.target.value;});
+const companyCodes=document.querySelector('#company-choices');
+if(companyCodes){
+  const companies=JSON.parse(companyCodes.textContent);
+  const code=document.querySelector('#id_account_number');
+  const update=()=>{const company=companies.find(c=>c.account_number.toLowerCase()===code.value.trim().toLowerCase());
+    document.querySelector('#owner-company-name').textContent=company?.name || 'Matched from Sama Accounting when connected';
+    document.querySelector('#owner-login-name').textContent=code.value.trim() || 'Enter the client code below';};
+  code.addEventListener('input',update);update();
+}

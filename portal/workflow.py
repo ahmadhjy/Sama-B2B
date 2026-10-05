@@ -24,6 +24,8 @@ def submit_request(user, draft_id, data):
     previous=TravelRequest.objects.filter(source_draft=draft).first()
     if previous:
         return previous
+    if draft.archived or draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+        raise ValidationError('This draft is closed or the assistant is still replying. Reopen it or wait before submitting.')
     req=TravelRequest.objects.create(company=user.company,requester=user,source_draft=draft,
         reference='HS-'+timezone.localdate().strftime('%y')+'-'+uuid.uuid4().hex[:8].upper(),**data)
     for entry in draft.messages:

@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
+from django.forms import formset_factory
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -25,7 +26,7 @@ from .ai import AssistantUnavailable, generate
 from .auth import allow_attempt
 from .fields import cipher
 from .files import save_attachment, read_upload
-from .forms import LoginForm, ProfileForm, TeamForm, CompanyOwnerForm, RequestForm, QuoteForm
+from .forms import LoginForm, ProfileForm, TeamForm, CompanyOwnerForm, RequestForm, QuoteForm, RequestFilters
 from .models import (User, Company, TravelRequest, Quote, Approval, Attachment, Draft, Audit, Message,
     Notification, Delivery, AIBudget, AICall, WorkerState, PushSubscription, MailReview)
 from .notifications import safe_push_endpoint
@@ -69,7 +70,10 @@ def dashboard(request):
     counts=dict(qs.values_list('status').annotate(total=Count('pk',distinct=True)))
     recent=list(qs[:6])
     approvals=Approval.objects.filter(user=request.user,decision='pending',quote__superseded=False,quote__valid_until__gt=timezone.now(),quote__request__status='awaiting_approval').select_related('quote__request')
-    context={'recent':recent,'total':qs.count(),'active_count':qs.exclude(status__in=['closed','cancelled']).count(),
+    context={'recent':recent,'personal_recent':qs.filter(requester=request.user)[:5],
+             'personal_count':qs.filter(requester=request.user).exclude(status__in=['closed','cancelled']).count(),
+             'team_count':User.objects.filter(company_id=request.user.company_id, removed_at__isnull=True, is_active=True).count() if request.user.company_id else 0,
+             'total':qs.count(),'active_count':qs.exclude(status__in=['closed','cancelled']).count(),
              'confirmed_count':qs.filter(status__in=['confirmed','closed']).count(),'approval_count':approvals.count(),
              'approvals':approvals[:4], 'counts':counts,'page_title':'Overview' if request.user.is_sama else 'Home'}
     if request.user.is_sama and request.user.role in ('sales','ceo'):
@@ -79,11 +83,24 @@ def dashboard(request):
 @login_required
 def requests_list(request):
     qs=visible_requests(request.user)
+    if request.GET.get('scope') == 'mine':
+        qs=qs.filter(requester=request.user)
     if request.GET.get('status'):
         qs=qs.filter(status=request.GET['status'])
+    if request.GET.get('service') in TravelRequest.Service.values:
+        qs=qs.filter(service_type=request.GET['service'])
     if request.GET.get('q'):
-        query=request.GET['q'][:100]; qs=qs.filter(Q(reference__icontains=query)|Q(title__icontains=query)|Q(destination__icontains=query))
-    return render(request,'portal/requests.html',{'page_title':'Requests','page':Paginator(qs,25).get_page(request.GET.get('page')),'statuses':TravelRequest.Status.choices})
+        query=request.GET['q'][:100]; qs=qs.filter(Q(reference__icontains=query)|Q(title__icontains=query)|Q(destination__icontains=query)|Q(origin__icontains=query)|Q(booking_reference__icontains=query)|Q(requester__first_name__icontains=query)|Q(requester__last_name__icontains=query))
+    filters=RequestFilters(request.GET)
+    if filters.is_valid():
+        if filters.cleaned_data.get('date_from'): qs=qs.filter(departure__gte=filters.cleaned_data['date_from'])
+        if filters.cleaned_data.get('date_to'): qs=qs.filter(departure__lte=filters.cleaned_data['date_to'])
+    qs=qs.prefetch_related('quotes')
+    page=Paginator(qs,25).get_page(request.GET.get('page'))
+    for item in page:
+        item.current_quote=next((q for q in item.quotes.all() if not q.superseded), None)
+    return render(request,'portal/requests.html',{'page_title':'My personal requests' if request.GET.get('scope')=='mine' else 'Requests',
+        'page':page,'filters':filters,'services':TravelRequest.Service.choices,'statuses':TravelRequest.Status.choices})
 
 @login_required
 def queue(request):
@@ -103,20 +120,100 @@ def claim(request,req_id):
 @login_required
 def new_request(request):
     if not can_create(request.user): raise PermissionDenied()
-    draft_id=request.GET.get('draft') or request.POST.get('draft_id')
+    draft_id=request.POST.get('draft_id') or request.GET.get('draft')
     if draft_id:
-        draft=get_object_or_404(Draft,pk=draft_id,user=request.user)
+        try:
+            draft=get_object_or_404(Draft,pk=draft_id,user=request.user)
+        except (ValueError, ValidationError): raise Http404()
+        previous=TravelRequest.objects.filter(source_draft=draft).first()
+        if previous: return redirect('request_detail',req_id=previous.pk)
     else:
-        draft=Draft.objects.filter(user=request.user,travelrequest__isnull=True).order_by('-updated_at').first()
+        draft=Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('-updated_at').first()
         draft=draft or Draft.objects.create(user=request.user)
     form=RequestForm(request.POST or None,initial=draft.summary)
     if request.method=='POST' and form.is_valid():
         try:
-            req=workflow.submit_request(request.user,draft.pk,form.cleaned_data)
+            uploads=request.FILES.getlist('attachments')
+            if len(uploads)>5: raise ValidationError('Attach at most five files.')
+            for upload in uploads: read_upload(upload)
+            with transaction.atomic():
+                req=workflow.submit_request(request.user,draft.pk,form.cleaned_data)
+                if uploads:
+                    workflow.add_message(request.user,req.pk,'Supporting documents for this request.',uploads,
+                        sensitive=request.POST.get('sensitive')=='on',token='draft-files:'+str(draft.pk))
             return redirect('request_detail',req_id=req.pk)
         except ValidationError as exc: flash_error(request,exc)
     return render(request,'portal/new_request.html',{'page_title':'New travel request','draft':draft,'form':form,'chat':draft.messages,
+        'drafts':Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at'),
+        'archived_drafts':Draft.objects.filter(user=request.user,archived=True,travelrequest__isnull=True).order_by('-updated_at'),
         'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary) or request.method=='POST'})
+
+@login_required
+@require_POST
+def draft_new(request):
+    if not can_create(request.user): raise PermissionDenied()
+    if Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).count() >= 12:
+        messages.error(request,'You already have 12 trip drafts. Submit one before adding another.')
+        return redirect('new_request')
+    draft=Draft.objects.create(user=request.user)
+    return redirect(reverse('new_request')+'?draft='+str(draft.pk))
+
+@login_required
+@require_POST
+def draft_save(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    form=RequestForm(request.POST)
+    if not form.is_valid():
+        return JsonResponse({'error':'Please complete the required trip fields before saving your review.'},status=400)
+    with transaction.atomic():
+        draft=get_object_or_404(Draft.objects.select_for_update(of=('self',)),pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
+        if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+            return JsonResponse({'error':'Wait for the assistant reply before saving.'},status=409)
+        # Private traveler information belongs only in the final protected form, never the AI summary.
+        draft.summary={k:str(v) if v is not None else '' for k,v in form.cleaned_data.items() if k!='traveller_details'}
+        draft.save()
+    return JsonResponse({'saved':True})
+
+@login_required
+@require_POST
+@transaction.atomic
+def draft_archive(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    draft=get_object_or_404(Draft.objects.select_for_update(of=('self',)),user=request.user,pk=draft_id,travelrequest__isnull=True)
+    if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+        messages.error(request,'Wait for the assistant reply before closing the draft.')
+    else:
+        restoring=request.POST.get('action')=='restore'
+        if restoring and Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).count()>=12:
+            messages.error(request,'Close or submit a trip before restoring another draft.')
+        else:
+            draft.archived=not restoring;draft.save(update_fields=['archived'])
+    return redirect('new_request')
+
+@login_required
+def drafts_review(request):
+    if not can_create(request.user): raise PermissionDenied()
+    drafts=list(Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at')[:12])
+    if not drafts: return redirect('new_request')
+    Forms=formset_factory(RequestForm,extra=0,max_num=12,validate_max=True)
+    forms=Forms(request.POST if request.method=='POST' else None,initial=[d.summary for d in drafts])
+    if request.method=='POST' and forms.is_valid():
+        ids=request.POST.getlist('draft_id')
+        expected=[str(d.pk) for d in drafts]
+        if ids!=expected or len(forms)!=len(drafts):
+            messages.error(request,'Your open drafts changed. Review them again before submitting.')
+        else:
+            try:
+                with transaction.atomic():
+                    locked_drafts=list(Draft.objects.select_for_update().filter(pk__in=ids,user=request.user).order_by('pk'))
+                    if any(d.archived or (d.ai_busy_until and d.ai_busy_until>timezone.now()) or TravelRequest.objects.filter(source_draft=d).exists() for d in locked_drafts):
+                        raise ValidationError('A draft changed or is busy. Return to your drafts and try again.')
+                    for draft,form in zip(drafts,forms):
+                        workflow.submit_request(request.user,draft.pk,form.cleaned_data)
+                messages.success(request,f'{len(drafts)} travel requests sent to Sama.')
+                return redirect(reverse('requests')+'?scope=mine')
+            except ValidationError as exc: flash_error(request,exc)
+    return render(request,'portal/drafts_review.html',{'page_title':'Review all drafts','forms':forms,'draft_forms':zip(drafts,forms),'draft_count':len(drafts)})
 
 @login_required
 @require_POST
@@ -136,6 +233,7 @@ def assistant(request,draft_id):
     with transaction.atomic():
         draft=get_object_or_404(Draft.objects.select_for_update(),pk=draft_id,user=request.user)
         if TravelRequest.objects.filter(source_draft=draft).exists(): return JsonResponse({'error':'This request has already been submitted.'},status=409)
+        if draft.archived: return JsonResponse({'error':'Restore this closed draft before continuing.'},status=409)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now(): return JsonResponse({'error':'Please wait for the current reply.'},status=409)
         if not summary and len(draft.messages)>=40: return JsonResponse({'error':'Please select Review my request below, or fill in the form yourself.'},status=400)
         if not summary: draft.messages.append({'role':'user','content':content})
@@ -172,6 +270,8 @@ def request_detail(request,req_id):
     steps=[('pending','Submitted'),('in_progress','With Sama'),('quote_sent','Quotation'),('awaiting_approval','Approvals'),('booking','Booking'),('confirmed','Confirmed')]
     index={'pending':0,'in_progress':1,'awaiting_client':1,'quote_sent':2,'awaiting_approval':3,'approved':3,'booking':4,'confirmed':5,'closed':5}.get(req.status,-1)
     return render(request,'portal/request_detail.html',{'page_title':req.reference,'req':req,'thread':thread,'quote':quote,
+        'history_requests':visible_requests(request.user).filter(requester=request.user)[:40] if request.GET.get('history')=='1' else [],
+        'can_edit':submit and req.status in ('pending','in_progress','awaiting_client') and not quotes,
         'quotes':quotes,'decision':decision,'can_work':work,'can_submit':submit,'can_decide':bool(decision and decision.decision=='pending' and current.can_approve and quote and not quote.expired and req.status=='awaiting_approval'),
         'approvers':approvers,'profile':profile,'private_travellers':req.traveller_details if sensitive else '',
         'steps':[{'label':label,'done':i<index,'current':i==index} for i,(_,label) in enumerate(steps)],
@@ -318,7 +418,7 @@ def company_create(request):
         except (ValidationError,AccountingUnavailable) as exc:
             form.add_error(None,str(exc) if isinstance(exc,AccountingUnavailable) else exc)
     return render(request,'portal/company_create.html',{'page_title':'Create company owner','form':form,
-        'accounting_enabled':settings.ACCOUNTING_ENABLED})
+        'accounting_enabled':settings.ACCOUNTING_ENABLED,'company_choices':list(Company.objects.filter(active=True).values('account_number','name'))})
 
 @login_required
 def team(request):
@@ -326,7 +426,15 @@ def team(request):
         members=User.objects.select_related('company').all().order_by('company__name','first_name')
     elif request.user.role=='owner': members=User.objects.filter(company=request.user.company).order_by('first_name')
     else: raise PermissionDenied()
-    return render(request,'portal/team.html',{'page_title':'People & access','members':members.filter(removed_at__isnull=True)})
+    members=members.filter(removed_at__isnull=True).prefetch_related('passport_files')
+    counts={'total':members.count(),'approvers':members.filter(can_approve=True,is_active=True).count(),'owners':members.filter(role='owner').count(),'requesters':members.filter(role='requester').count()}
+    query=request.GET.get('q','')[:100]
+    if query: members=members.filter(Q(first_name__icontains=query)|Q(last_name__icontains=query)|Q(username__icontains=query)|Q(email__icontains=query)|Q(company__name__icontains=query))
+    role=request.GET.get('role','')
+    if role=='approver': members=members.filter(can_approve=True)
+    elif role in ('owner','requester','accountant'): members=members.filter(role=role)
+    page=Paginator(members,25).get_page(request.GET.get('page'))
+    return render(request,'portal/team.html',{'page_title':'People & access','members':page,'page':page,'team_counts':counts})
 
 @login_required
 @sensitive_post_parameters('password')
@@ -490,16 +598,25 @@ def finance(request):
     kind=request.GET.get('kind','statement')
     if kind not in ('statement','invoices','invoice','receipts','receipt'): raise Http404()
     data=None; error=''
+    filters=RequestFilters(request.GET)
+    filters.fields['date_from'].label='From date'
+    filters.fields['date_to'].label='To date'
     if company:
         try:
             data=bridge_call('finance',{'company_id':str(company.erp_id),'kind':kind,'id':request.GET.get('id')})
             if not data: raise AccountingUnavailable('The accounting connection rejected this request.')
         except AccountingUnavailable as exc: error=str(exc)
+    if data:
+        from .finance_display import filter_records, export_csv
+        data=filter_records(data,kind,request.GET,filters)
+        if request.GET.get('download')=='csv' and kind in ('statement','invoices','receipts'):
+            return export_csv(data,kind)
     if data and request.GET.get('download')=='pdf':
         from .pdf import document
         if kind=='statement':
-            rows=[[r.get('date',''),r.get('ref',''),r.get('type',''),r.get('debit',''),r.get('credit','')] for r in data['rows']]
-            output=document('STATEMENT OF ACCOUNT',company.name,[('Balance',f"{data['closing']} USD")],rows,['Date','Reference','Type','Debit USD','Credit USD'])
+            rows=[[r.get('date',''),r.get('ref',''),r.get('type',''),r.get('debit',''),r.get('credit',''),r.get('running_balance','')] for r in data['rows']]
+            output=document('STATEMENT OF ACCOUNT',company.name,[('Full account balance',f"{data['closing']} USD"),
+                ('Displayed entries',f"Search: {request.GET.get('q','')} | From: {request.GET.get('date_from','')} | To: {request.GET.get('date_to','')}\nAccount totals and running balances are supplied by Sama Accounting; filters affect displayed entries only.")],rows,['Date','Reference','Service','Debit USD','Credit USD','Balance USD'])
         elif kind=='invoice':
             rows=[[r.get('date',''),r.get('service',''),r.get('destination',''),r.get('qty',''),r.get('amount','')] for r in data['lines']]
             output=document('INVOICE',f"{data['number']} | {company.name}",[('Totals',f"Total {data['total']} USD | Paid {data['paid']} USD | Remaining {data['remaining']} USD")],rows,['Date','Service','Destination','Qty',data['currency']])
@@ -507,7 +624,7 @@ def finance(request):
             output=document('RECEIPT',f"{data['number']} | {company.name}",[('Payment',f"{data['kind']}\n{data['date']}\n{data['amount']} {data['currency']}")])
         else: raise Http404()
         return FileResponse(output,as_attachment=True,filename=f'HelloSama-{kind}.pdf',content_type='application/pdf')
-    return render(request,'portal/finance.html',{'page_title':'Accounting','companies':companies,'selected_company':company,'kind':kind,'data':data,'error':error})
+    return render(request,'portal/finance.html',{'page_title':'Accounting','companies':companies,'selected_company':company,'kind':kind,'data':data,'error':error,'filters':filters})
 
 @login_required
 def financial_attachment(request):

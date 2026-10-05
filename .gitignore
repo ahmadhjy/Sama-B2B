@@ -16,3 +16,4 @@ deploy/generated_wsgi.py
 .worker.lock
 .demo-access.txt
 .release
+.reference-tools/

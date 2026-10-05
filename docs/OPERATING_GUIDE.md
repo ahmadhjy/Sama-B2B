@@ -22,7 +22,7 @@ Roles:
 ## From conversation to confirmed booking
 
 1. Plan a trip with the assistant, or fill in the form directly. Drafts are private and are not in the sales queue.
-2. Generate the editable summary. Check the route, dates, travellers, budget and preferences.
+2. Select **Review my request**. Check the route, dates, passenger breakdown and preferences. Budget is optional and the assistant never asks for it.
 3. Submit the request. It receives a reference and enters Pending.
 4. A Sama salesperson takes over. Their name appears in the conversation and the status changes to In progress.
 5. Discuss details and attach files. Status updates appear as system boxes in the conversation. Messages are retained.
@@ -77,3 +77,17 @@ The review button fills an editable form and brings it into view. Check it, fill
 Existing requests now show brief next-step prompts for quotations, approvals and booking progress. The quotation prompt links directly to the quotation, including on mobile.
 
 For email/SMS activation, see [ACTIVATE_NOTIFICATIONS.md](ACTIVATE_NOTIFICATIONS.md). Configuration and actual delivery must be checked separately; the app does not assume messages arrived merely because credentials exist.
+
+## Saved trips, approvals and travel overview — 5 October 2026
+
+- **Another trip** starts a separate private draft. Use the trip tabs to switch between them. Select **Save reviewed details** before switching after editing the form. This saves valid trip details; private traveller details and selected files must be submitted from the current form. **Close this draft** keeps it under **Closed drafts**, where it can be restored. Up to 12 drafts can be open.
+- **Review & submit all open drafts** presents each trip for review. Complete every required field before submitting. They become separate requests together; an invalid form prevents the batch from being submitted. Use the individual trip form if you need to attach files at submission.
+- If the assistant provides cited flight or hotel suggestions, **Choose this preference** puts the choice in your message box. Send it to include it in the conversation. It is a preference for Sama to verify, not a reservation or a live availability guarantee.
+- **Company requests** can be searched by reference, trip, route, booking reference or requester name, and filtered by service, status and departure dates. **My personal requests** shows your own requests and opens a conversation alongside recent history.
+- Open a request to download its summary or export its conversation as a PDF. Exports follow the same permissions as the conversation. Files remain in **Files & documents**. You can edit trip details before a quotation exists; after that, ask Sama for a revision in the conversation.
+- Approval links open a focused review page. Check the amount, itinerary, terms and expiry before deciding. Every designated approver still needs to approve the current quotation. **Remind pending approvers** queues a reminder, limited to once per hour per request. Delivery depends on configured channels and the worker.
+- **Travel overview**, available to company owners and the Sama administrator, lists confirmed trips by recorded dates: underway, leaving within seven days, or without a recorded return. It identifies the requester and party size, not each passenger's live location. Select active confirmed trips to post the same update to their portal conversations; closed trips remain read-only. A PDF overview and requester contact links are available.
+- **People & access** supports name/email/login searches and role filters. **Accounting** supports date/search filters and CSV exports for statements, invoices and receipts; statement PDFs include the filtered entries. Account totals and running balances remain the values supplied by Sama Accounting.
+- In the profile, choose passport expiry using separate **day, month and year** selectors. Nationality uses a country list; existing recorded values remain available when editing.
+
+The login page's service labels do not create extra account types. Sign in using the same company or individual credentials and permissions as before.

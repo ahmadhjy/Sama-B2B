@@ -4,10 +4,45 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from .models import User, Quote, TravelRequest
+from .countries import COUNTRY_NAMES
+
+class PassportDateWidget(forms.SelectDateWidget):
+    def _parse_date_fmt(self):
+        yield from ('day', 'month', 'year')
+    def get_context(self,name,value,attrs):
+        context=super().get_context(name,value,attrs)
+        for widget in context['widget']['subwidgets']:
+            widget['attrs']['aria-label']='Passport expiry '+widget['name'].rsplit('_',1)[-1]
+        return context
+
+def travel_profile_fields(form):
+    if 'passport_expiry' in form.fields:
+        year = timezone.localdate().year
+        existing = getattr(form.instance, 'passport_expiry', None)
+        form.fields['passport_expiry'].widget = PassportDateWidget(
+            years=range(min(year, existing.year if existing else year), year + 21),
+            empty_label=('Year', 'Month', 'Day'), attrs={'class': 'date-part'})
+        form.fields['passport_expiry'].help_text = 'Choose the day, month and year printed on the passport.'
+    if 'nationality' in form.fields:
+        existing = getattr(form.instance, 'nationality', '')
+        names = list(COUNTRY_NAMES)
+        if existing and existing not in names:
+            names.insert(0, existing)
+        form.fields['nationality'].widget = forms.Select(choices=[('', 'Select country / nationality')] + [(n, n) for n in names])
+        form.fields['nationality'].help_text = 'Select the country that issued your passport.'
 
 class LoginForm(forms.Form):
     username = forms.CharField(label='Account number or user ID', max_length=150, widget=forms.TextInput(attrs={'autocomplete':'username','autofocus':True}))
     password = forms.CharField(widget=forms.PasswordInput(attrs={'autocomplete':'current-password'}), strip=False)
+
+class RequestFilters(forms.Form):
+    date_from = forms.DateField(required=False, label='Departure from', widget=forms.DateInput(attrs={'type':'date'}))
+    date_to = forms.DateField(required=False, label='Departure to', widget=forms.DateInput(attrs={'type':'date'}))
+    def clean(self):
+        data=super().clean()
+        if data.get('date_from') and data.get('date_to') and data['date_to'] < data['date_from']:
+            self.add_error('date_to','End date must be on or after the start date.')
+        return data
 
 class ProfileForm(forms.ModelForm):
     passport_copy = forms.FileField(required=False, help_text='PDF, JPG or PNG. Up to 10 MB. Stored privately.')
@@ -17,6 +52,7 @@ class ProfileForm(forms.ModelForm):
         widgets = {'passport_number': forms.TextInput(), 'passport_expiry': forms.DateInput(attrs={'type':'date'})}
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        travel_profile_fields(self)
         for field in ['first_name','last_name','email']:
             self.fields[field].required = True
         if not self.instance.is_sama:
@@ -48,6 +84,7 @@ class TeamForm(forms.ModelForm):
     def __init__(self, *args, actor=None, **kwargs):
         self.actor = actor
         super().__init__(*args, **kwargs)
+        travel_profile_fields(self)
         self.fields['first_name'].required = self.fields['last_name'].required = True
         self.fields['password'].required = not self.instance.pk
         client_roles = [User.Role.OWNER, User.Role.REQUESTER, User.Role.ACCOUNTANT]
@@ -79,8 +116,9 @@ class TeamForm(forms.ModelForm):
         return data
 
 class CompanyOwnerForm(forms.Form):
-    account_number = forms.CharField(label='Accounting client code', max_length=64,
-        help_text='The client code from Sama Accounting. For a new client, add their client record there first.')
+    account_number = forms.CharField(label='Company login username (accounting client code)', max_length=64,
+        help_text='The owner uses this code to sign in. Company name comes from the matching Sama Accounting client.',
+        widget=forms.TextInput(attrs={'list':'company-codes','autocomplete':'off'}))
     mode = forms.ChoiceField(label='Company login', choices=[
         ('create', 'Create a new company login'), ('link', 'Connect an existing accounting portal login')])
     first_name = forms.CharField(max_length=150)
@@ -108,10 +146,13 @@ class CompanyOwnerForm(forms.Form):
         return data
 
 class RequestForm(forms.ModelForm):
+    service_type = forms.ChoiceField(required=False, choices=TravelRequest.Service.choices, label='What do you need?')
+    def clean_service_type(self):
+        return self.cleaned_data.get('service_type') or TravelRequest.Service.TRAVEL
     class Meta:
         model = TravelRequest
-        fields = ['title','origin','destination','departure','return_date','travellers','budget','requirements','traveller_details']
-        widgets = {'departure': forms.DateInput(attrs={'type':'date'}), 'return_date': forms.DateInput(attrs={'type':'date'}),
+        fields = ['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements','traveller_details']
+        widgets = {'departure': forms.DateInput(format='%Y-%m-%d', attrs={'type':'date'}), 'return_date': forms.DateInput(format='%Y-%m-%d', attrs={'type':'date'}),
                    'requirements': forms.Textarea(attrs={'rows':4}), 'traveller_details': forms.Textarea(attrs={'rows':3})}
         labels = {'title':'Trip name', 'origin':'Travelling from', 'destination':'Travelling to',
                   'departure':'Departure date', 'return_date':'Return date (optional)',

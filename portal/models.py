@@ -70,8 +70,19 @@ class Draft(models.Model):
     ai_busy_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived = models.BooleanField(default=False)
+
+    @property
+    def title(self):
+        return str(self.summary.get('title') or next((m['content'] for m in self.messages if m.get('role')=='user'), 'New trip'))[:60]
 
 class TravelRequest(models.Model):
+    class Service(models.TextChoices):
+        TRAVEL = 'travel', 'Travel request'
+        FLIGHT = 'flight', 'Flights'
+        HOTEL = 'hotel', 'Hotel'
+        PACKAGE = 'package', 'Flights & hotel'
+        TRANSFER = 'transfer', 'Transfers'
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
         PROGRESS = 'in_progress', 'In progress'
@@ -92,6 +103,7 @@ class TravelRequest(models.Model):
     assignee = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT, related_name='assigned_requests')
     source_draft = models.OneToOneField(Draft, null=True, blank=True, on_delete=models.SET_NULL)
     title = models.CharField(max_length=160)
+    service_type = models.CharField(max_length=12, choices=Service.choices, default=Service.TRAVEL)
     origin = models.CharField(max_length=120)
     destination = models.CharField(max_length=120)
     departure = models.DateField()

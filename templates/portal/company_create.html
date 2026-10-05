@@ -3,6 +3,8 @@
 <div class="page-heading"><div><a class="back-link" href="{% url 'companies' %}">← Company accounts</a><span class="eyebrow">WELCOME A COMPANY</span><h1>Create a company owner</h1><p>One client code, one company login for HelloSama and the accounting portal.</p></div></div>
 <div class="company-create-layout">
   <section class="card form-card">
+    {{ company_choices|json_script:'company-choices' }}<datalist id="company-codes">{% for company in company_choices %}<option value="{{ company.account_number }}">{{ company.name }}</option>{% endfor %}</datalist>
+    <div class="identity-preview"><small>COMPANY NAME</small><strong id="owner-company-name">Matched from Sama Accounting</strong><small>OWNER LOGIN USERNAME</small><strong id="owner-login-name">Enter the client code below</strong></div>
     {% if not accounting_enabled %}<div class="inline-notice">The accounting connection is not configured in this environment yet. You can preview this form; creating a linked account becomes available after the connection is set up.</div>{% endif %}
     <form method="post">{% csrf_token %}{% include 'portal/form_fields.html' %}<div class="form-actions"><a class="button secondary" href="{% url 'companies' %}">Cancel</a><button class="button primary" type="submit" {% if not accounting_enabled %}disabled{% endif %}>Create / connect owner</button></div></form>
   </section>

@@ -98,13 +98,20 @@ def generate(user, messages, summary=False):
     payload={'model':settings.OPENAI_MODEL,'store':False,'max_output_tokens':1500,
         'reasoning':{'effort':'low'},'instructions':INSTRUCTIONS+'\nToday: '+str(timezone.localdate()),'input':conversation}
     if summary:
-        fields=['title','origin','destination','departure','return_date','travellers','budget','requirements']
+        fields=['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements']
         schema={'type':'object','properties':{key:{'type':'string'} for key in fields},'required':fields,'additionalProperties':False}
         payload['text']={'format':{'type':'json_schema','name':'travel_request','strict':True,'schema':schema}}
+        payload['instructions']+='\nFor service_type use flight, hotel, package (flights and hotel), transfer, or travel when unspecified.'
         payload['instructions']+='\nFor this extraction only, return the required JSON instead of a conversational reply. Use YYYY-MM-DD dates; leave unknown fields as empty strings. travellers is the TOTAL number of adults, children and infants as a numeric string. In requirements, preserve the stated adult/child/infant breakdown, trip duration, flexible dates, one-way travel and service preferences in brief lines. Do not infer all passengers are adults. Derive a return date only from an unambiguous departure plus number of nights; preserve ambiguous days/duration in requirements instead. Budget must be empty unless explicitly volunteered by the client. Do not invent missing information. Include only trip preferences; no personal identifiers. Do not include instructions to click buttons in the form.'
     else:
         payload['tools']=[{'type':'web_search','search_context_size':'low'}]
         payload['max_tool_calls']=2
+        payload['text']={'format':{'type':'json_schema','name':'travel_reply','strict':True,'schema':{
+            'type':'object','properties':{'content':{'type':'string'},'options':{'type':'array','items':{
+                'type':'object','properties':{'label':{'type':'string'},'detail':{'type':'string'},'source_url':{'type':'string'}},
+                'required':['label','detail','source_url'],'additionalProperties':False}}},
+            'required':['content','options'],'additionalProperties':False}}}
+        payload['instructions']+='\nReturn a JSON object: content is your brief conversational reply; options is normally empty. Only when the user asks for specific flight or hotel choices, provide at most two options backed by web-search citations, each with a short label, one-line factual detail and the exact cited source_url. Never offer invented schedules, prices or live availability. Do not include personal details in options. Selection records a preference for Sama, never a reservation. If date-specific flight times cannot be verified, say so briefly and collect the request instead.'
     try:
         response=requests.post('https://api.openai.com/v1/responses',json=payload,
             headers={'Authorization':'Bearer '+settings.OPENAI_API_KEY},timeout=(5,85))
@@ -135,4 +142,16 @@ def generate(user, messages, summary=False):
             return {key:str(parsed.get(key,''))[:5000] for key in fields}
         except ValueError:
             raise AssistantUnavailable('Please complete the editable summary manually.')
-    return {'role':'assistant','content':text,'sources':sources[:12]}
+    options=[]
+    try:
+        reply=json.loads(text)
+        if isinstance(reply,dict) and isinstance(reply.get('content'),str):
+            text=reply['content']
+            cited={s['url'] for s in sources}
+            for option in reply.get('options',[])[:2]:
+                if isinstance(option,dict) and option.get('source_url') in cited:
+                    options.append({'label':str(option.get('label',''))[:100],
+                        'detail':str(option.get('detail',''))[:350],'source_url':option['source_url']})
+    except (ValueError,TypeError):
+        pass
+    return {'role':'assistant','content':text,'sources':sources[:12],'options':options}
