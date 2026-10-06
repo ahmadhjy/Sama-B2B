@@ -195,6 +195,26 @@ class ClientUpdateTests(TestCase):
         result=generate(self.requester,[{'role':'user','content':'Suggest flights'}])
         self.assertEqual([c['label'] for c in result['options']],['Published flight'])
         self.assertIn('Never offer invented schedules',post.call_args.kwargs['json']['instructions'])
+        self.assertEqual(post.call_args.kwargs['json']['tool_choice'],'required')
+
+    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-only',OPENAI_MODEL='gpt-6-luna')
+    @patch('portal.ai.requests.post')
+    def test_flight_date_followup_requires_search_but_summary_does_not(self,post):
+        from .ai import generate
+        post.return_value=Mock(raise_for_status=lambda:None,json=lambda:{'status':'completed',
+            'usage':{'input_tokens':20,'output_tokens':30},'output':[{'type':'message','content':[
+                {'type':'output_text','text':json.dumps({'content':'Checking published schedules.','options':[]})}]}]})
+        conversation=[{'role':'user','content':'Which flights go from Beirut to Dubai?'},
+                      {'role':'assistant','content':'What date are you travelling?'},
+                      {'role':'user','content':'2026-11-18'}]
+        generate(self.requester,conversation)
+        self.assertEqual(post.call_args.kwargs['json']['tool_choice'],'required')
+        self.assertIn('2026-11-18',post.call_args.kwargs['json']['input'][-1]['content'])
+        generate(self.requester,conversation,summary=True)
+        self.assertNotIn('tools',post.call_args.kwargs['json'])
+        self.assertNotIn('tool_choice',post.call_args.kwargs['json'])
+        generate(self.requester,[{'role':'user','content':'Two adults and one child.'}])
+        self.assertNotIn('tool_choice',post.call_args.kwargs['json'])
 
     def test_pdf_export_renders_long_conversations(self):
         Message.objects.create(request=self.req,author=self.requester,body='Long travel update. '*400)

@@ -27,6 +27,12 @@ Travel updates use existing portal conversations and the existing notification d
 
 ## Completion review — 6 October 2026
 
+### Scope clarification after review
+
+The user clarified that the assistant should research published flight schedules online and report verified timings/details, without making reservations. Traveler tracking should use trip dates. Phone notifications mean the existing Broadnet SMS integration plus email, not WhatsApp. Card payments and all other outstanding enhancements are out of scope for now. Accordingly, automatic ticket issuance, GDS reservations and GPS tracking are not missing requirements in this clarified scope; Sama staff continue handling bookings and documents.
+
+The assistant instructions now explicitly require dated flight research and concise airline/flight-number/airport/local-time details with sources. Explicit flight/schedule enquiries and recent follow-ups require the web-search tool. A source must support the requested date; unknown timings must not be invented. This behavior uses the existing search allowance and does not introduce booking actions. Automated tests verify request construction; a real provider response has not been tested in this update.
+
 All eleven linked Tailwind pages above were reopened and read in chronological order. The Saturday 4:55 PM profile image and Sunday 3:41 PM planner image were also inspected. **Reviewed does not mean every mockup feature has been implemented.** The delivered screens adapt the references to the existing portal; they are not exact reproductions. Do not describe this as 100% completion of every element in the mockups.
 
 The company-owner clarification is implemented: **Company name** is shown separately, and **Login user name** remains the accounting client code. Known connected companies show their saved name as the code is entered. A new company's name is confirmed by Accounting during creation/connection; this form does not provide a live lookup of all Accounting clients or let an administrator rename an Accounting client.

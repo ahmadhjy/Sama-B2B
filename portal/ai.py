@@ -28,6 +28,15 @@ may be asked together). If recommendations are requested, give at most two conci
 When the basic details are collected, say: "Your trip details are ready. Click Review my request below."
 The visible Review my request button generates an editable form; it does not send anything to Sama.
 If the client wants to finish early, direct them to that button so they can fill any gaps themselves.
+When a client asks for available flights, timings, schedules or flight details, research online sources
+before answering. Prefer the airline's dated timetable or airport flight information, then reputable
+travel sources. Use the requested route and travel date; ask for missing route/date details first.
+Report verified airline, flight number, departure/arrival airports, local departure/arrival times,
+arrival-day changes and stops concisely, with source links. Include duration or baggage only if sourced.
+If a source only shows a general timetable, label it as general; do not claim it applies to the requested
+date. If sources disagree or exact details cannot be verified, explain the specific gap briefly.
+Do not refuse to research published schedules merely because you cannot reserve seats. No reservation
+or ticket issuance is requested or performed by this assistant. Flight cards are information/preferences.
 Use web search for current flight/hotel claims and clearly cite sources. Public search does not prove
 live seat availability or a bookable price. Say when live availability is unknown. Sama sales verifies
 availability and sends the final quotation. Do not invent prices, dates or pretend to book anything.
@@ -105,6 +114,11 @@ def generate(user, messages, summary=False):
         payload['instructions']+='\nFor this extraction only, return the required JSON instead of a conversational reply. Use YYYY-MM-DD dates; leave unknown fields as empty strings. travellers is the TOTAL number of adults, children and infants as a numeric string. In requirements, preserve the stated adult/child/infant breakdown, trip duration, flexible dates, one-way travel and service preferences in brief lines. Do not infer all passengers are adults. Derive a return date only from an unambiguous departure plus number of nights; preserve ambiguous days/duration in requirements instead. Budget must be empty unless explicitly volunteered by the client. Do not invent missing information. Include only trip preferences; no personal identifiers. Do not include instructions to click buttons in the form.'
     else:
         payload['tools']=[{'type':'web_search','search_context_size':'low'}]
+        # Require research for explicit flight enquiries and their short follow-ups.
+        # Other travel intake stays conversational; the model can still search when needed.
+        recent_user_text=' '.join(item['content'] for item in conversation[-6:] if item['role']=='user')
+        if re.search(r'\b(flights?|airlines?|airfares?|flight\s+times?|schedules?|timings?)\b',recent_user_text,re.I):
+            payload['tool_choice']='required'
         payload['max_tool_calls']=2
         payload['text']={'format':{'type':'json_schema','name':'travel_reply','strict':True,'schema':{
             'type':'object','properties':{'content':{'type':'string'},'options':{'type':'array','items':{

@@ -34,6 +34,15 @@ Email sending uses authenticated SMTP with TLS. `IMAP_ENABLED=False` leaves inco
 
 The test allowlists restrict delivery to the specified recipients. Add your own second email separated by a comma if you want to test a client email too. These are allowlists, not forwarding rules: a user must have that actual email/mobile in their profile. Push is suppressed while test mode is on.
 
+For example, replace this illustrative number with your own international mobile number:
+
+```dotenv
+NOTIFICATION_TEST_MODE=True
+NOTIFICATION_TEST_PHONES=+96170123456
+```
+
+Use the country code with no spaces. Multiple numbers are comma-separated. Keep the same number in the intended approver's profile. This is the existing Broadnet **SMS** integration, not WhatsApp; WhatsApp credentials or a WhatsApp account are not required.
+
 ## 2. Check provider access without sending
 
 In the HelloSama Bash console:
