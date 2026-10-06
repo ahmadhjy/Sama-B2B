@@ -4,7 +4,7 @@
 <div class="company-create-layout">
   <section class="card form-card">
     {{ company_choices|json_script:'company-choices' }}<datalist id="company-codes">{% for company in company_choices %}<option value="{{ company.account_number }}">{{ company.name }}</option>{% endfor %}</datalist>
-    <div class="identity-preview"><small>COMPANY NAME</small><strong id="owner-company-name">Matched from Sama Accounting</strong><small>OWNER LOGIN USERNAME</small><strong id="owner-login-name">Enter the client code below</strong></div>
+    <div class="identity-preview"><small>COMPANY NAME</small><strong id="owner-company-name" aria-live="polite">Enter the accounting client code below</strong><p class="field-help">The company name comes from Sama Accounting. For a company not yet connected, its name is confirmed when you create or connect the owner.</p></div>
     {% if not accounting_enabled %}<div class="inline-notice">The accounting connection is not configured in this environment yet. You can preview this form; creating a linked account becomes available after the connection is set up.</div>{% endif %}
     <form method="post">{% csrf_token %}{% include 'portal/form_fields.html' %}<div class="form-actions"><a class="button secondary" href="{% url 'companies' %}">Cancel</a><button class="button primary" type="submit" {% if not accounting_enabled %}disabled{% endif %}>Create / connect owner</button></div></form>
   </section>

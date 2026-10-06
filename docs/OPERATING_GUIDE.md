@@ -91,3 +91,7 @@ For email/SMS activation, see [ACTIVATE_NOTIFICATIONS.md](ACTIVATE_NOTIFICATIONS
 - In the profile, choose passport expiry using separate **day, month and year** selectors. Nationality uses a country list; existing recorded values remain available when editing.
 
 The login page's service labels do not create extra account types. Sign in using the same company or individual credentials and permissions as before.
+
+On **Create a company owner**, **Login user name** means the accounting client code. **Company name** shows the saved name for an already connected company; for a new connection, Accounting confirms the name when the owner is created or connected. Company names continue to be managed in Sama Accounting. The **Account setup** selection controls whether to create a new shared login or connect an existing one.
+
+See [the reference completion review](CLIENT_UPDATES_2026-10.md#completion-review--6-october-2026) for the remaining differences between the client's mockups and the implemented portal.

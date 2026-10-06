@@ -4,7 +4,7 @@ Reviewed the Sama Tours written notes, images and Tailwind references in their S
 
 ## Reference order and implementation
 
-1. Saturday login reference and portal icons: navy/cobalt login layout and static travel-agency/corporate/organisation service identities. Existing authentication and roles are retained.
+1. Saturday login reference and portal icons: navy/cobalt login layout and static travel-agency/corporate/organisation service identities. The 6 October correction replaces the original placeholder symbols with the client's supplied emblems. Existing authentication and roles are retained.
 2. Company-owner account screen: explicit company login username label, account-code suggestions and matching company-name preview. Accounting remains authoritative for new company names and shared logins.
 3. Passport date/nationality note: day/month/year expiry selectors and country selection, preserving existing nationality values.
 4. [Profile](https://play.tailwindcss.com/gQ4i0HdCGc): grouped contact, travel-document and notification sections.
@@ -24,6 +24,30 @@ Reviewed the Sama Tours written notes, images and Tailwind references in their S
 The references contain example data and capabilities that need separate provider integrations. No sample balances, flight inventory, GPS positions, GDS hold timers or automatic ticket issuance are presented as real. AI source cards represent published information and preferences for Sama to verify. The overview uses confirmed portal requests and recorded dates. The existing all-approver workflow remains required before Sama books.
 
 Travel updates use existing portal conversations and the existing notification delivery system. This release does not activate SMS/email credentials or add WhatsApp dispatch. Separate travel-agency/organisation authentication products are not introduced by the login's service labels.
+
+## Completion review — 6 October 2026
+
+All eleven linked Tailwind pages above were reopened and read in chronological order. The Saturday 4:55 PM profile image and Sunday 3:41 PM planner image were also inspected. **Reviewed does not mean every mockup feature has been implemented.** The delivered screens adapt the references to the existing portal; they are not exact reproductions. Do not describe this as 100% completion of every element in the mockups.
+
+The company-owner clarification is implemented: **Company name** is shown separately, and **Login user name** remains the accounting client code. Known connected companies show their saved name as the code is entered. A new company's name is confirmed by Accounting during creation/connection; this form does not provide a live lookup of all Accounting clients or let an administrator rename an Accounting client.
+
+Specific differences and outstanding capabilities:
+
+- **Profile:** password changes use the existing separate Change password page. The Saturday image's inline new-password/confirmation fields are not part of profile completion. Passport expiry uses three selectors instead of the mockup's single date field.
+- **Owner dashboard:** personal requests, team count and navigation are available. The reference's account-balance/credit-standing tile, embedded user-permission list and recent-invoice cards are not reproduced on the dashboard; financial records and people remain on their respective pages.
+- **Planner:** draft tabs, editable reviews and batch submission are available. Closing/restoring individual drafts replaces the mockup's bulk Clear inactive drafts control. Suggestions are capped at two cited preference cards, not four live flight schedules plus three priced hotel choices. There is no live package-pricing calculator, radio-button package selection or reservation. Files are submitted through the individual request form, not the batch review.
+- **Submitted request:** the user opens the normal request conversation after submission; submitted and draft trips are not combined into the mockup's single tab strip. No response-time promise, agent-online indicator or GDS seat-locking claim is made. Trip editing is restricted once a quotation exists.
+- **Quotation:** existing versioned quotations, approval controls, PDF downloads and uploaded booking documents are retained. The mockup's separately priced flight/hotel offer cards and payment-method selector are not implemented. No saved-card payment processing, guaranteed-seat countdown, automatic ticket issuance or automatic invoice creation is added.
+- **Approval:** a focused review page replaces the proposed modal. All designated approvers must approve the current quotation before Sama books. The pending reminder queues configured notification channels; it is not an automated WhatsApp dispatch or proof of delivery.
+- **Requests hub:** service, status, text and departure-date filters are implemented. The reference's GDS sync/hold badges, department/carrier breakdown, preset date ranges and aggregate table value are not reproduced.
+- **Accounting:** statement/invoice/receipt views, date filters and exports are available. Excel-compatible CSV is provided instead of a native XLSX file. Credit limits, available credit, Net-30 facility cards and quarter/year presets from the mockup are not added.
+- **People & access:** existing roles, approver permissions, search and profile-completion status remain authoritative. Seat quotas, configurable spending thresholds, a policy-settings editor and advance passport-expiry warnings are not implemented. A complete profile is not represented as independently verified identity.
+- **Travel overview:** confirmed requests and recorded dates identify the requester and party size. Live GPS, hotel room tracking, flight operational status, individual passenger manifests and emergency-dispatch service are not implemented. Bulk updates post to selected active trip conversations.
+- **History:** the split view lists the latest 40 personal requests with a link to search all. It does not reproduce the mockup's All/Active/Completed tabs or an automatic ticketing timeline. Conversation exports follow existing access rules; no new permanent-retention or compliance guarantee is introduced.
+
+Voice notes and the two unrelated Monday HTML files remain excluded by the user's instruction. No production deployment or live provider delivery is confirmed by this review.
+
+For this correction, 29 company-account and client-workflow tests passed locally. The client emblems and company-name/code matching were checked in the local preview with fictional data. No model or accounting-bridge change is included in this correction.
 
 ## Release and verification
 

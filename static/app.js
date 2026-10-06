@@ -236,7 +236,6 @@ if(companyCodes){
   const companies=JSON.parse(companyCodes.textContent);
   const code=document.querySelector('#id_account_number');
   const update=()=>{const company=companies.find(c=>c.account_number.toLowerCase()===code.value.trim().toLowerCase());
-    document.querySelector('#owner-company-name').textContent=company?.name || 'Matched from Sama Accounting when connected';
-    document.querySelector('#owner-login-name').textContent=code.value.trim() || 'Enter the client code below';};
+    document.querySelector('#owner-company-name').textContent=company?.name || (code.value.trim() ? 'To be confirmed from Sama Accounting' : 'Enter the accounting client code below');};
   code.addEventListener('input',update);update();
 }

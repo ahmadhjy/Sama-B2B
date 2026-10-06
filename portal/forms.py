@@ -116,10 +116,10 @@ class TeamForm(forms.ModelForm):
         return data
 
 class CompanyOwnerForm(forms.Form):
-    account_number = forms.CharField(label='Company login username (accounting client code)', max_length=64,
-        help_text='The owner uses this code to sign in. Company name comes from the matching Sama Accounting client.',
+    account_number = forms.CharField(label='Login user name', max_length=64,
+        help_text='Enter the accounting client code. This is the owner’s username in both HelloSama and the accounting portal.',
         widget=forms.TextInput(attrs={'list':'company-codes','autocomplete':'off'}))
-    mode = forms.ChoiceField(label='Company login', choices=[
+    mode = forms.ChoiceField(label='Account setup', choices=[
         ('create', 'Create a new company login'), ('link', 'Connect an existing accounting portal login')])
     first_name = forms.CharField(max_length=150)
     last_name = forms.CharField(max_length=150)
