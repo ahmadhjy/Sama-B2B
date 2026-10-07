@@ -15,7 +15,7 @@ def document(title, subtitle, sections, rows=None, headers=None):
     def para(text,style='Body'):
         return Paragraph(escape(str(text)).replace('\n','<br/>'),styles[style])
     story=[]
-    logo=settings.BASE_DIR/'static/brand/logo.png'
+    logo=settings.BASE_DIR/'static/brand/logo-gold.jpg'
     if logo.exists(): story.extend([Image(str(logo),width=22*mm,height=20*mm,kind='proportional',hAlign='LEFT'),Spacer(1,8)])
     story.extend([para(title,'Title'),para(subtitle),Spacer(1,10)])
     for heading,content in sections:
