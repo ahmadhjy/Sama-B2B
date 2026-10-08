@@ -20,6 +20,7 @@ urlpatterns = [
     path('drafts/review/',views.drafts_review,name='drafts_review'),
     path('drafts/<uuid:draft_id>/archive/',views.draft_archive,name='draft_archive'),
     path('drafts/<uuid:draft_id>/save/',views.draft_save,name='draft_save'),
+    path('drafts/<uuid:draft_id>/select/',views.draft_select,name='draft_select'),
     path('queue/',views.queue,name='queue'),path('requests/<uuid:req_id>/claim/',views.claim,name='claim'),
     path('requests/<uuid:req_id>/',views.request_detail,name='request_detail'),
     path('requests/<uuid:req_id>/files/',views.request_files,name='request_files'),

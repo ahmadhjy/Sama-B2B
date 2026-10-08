@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from . import workflow, notifications
+from .chat import itinerary_changed, preference_text
 from .auth import allow_attempt
 from .forms import RequestForm
 from .models import Audit, User, TravelRequest, Quote
@@ -49,7 +50,9 @@ def request_export(request, req_id):
             heading=f'{timezone.localtime(message.created_at):%d %b %Y %H:%M} · {author}'
             if message.internal: heading+=' · Internal'
             files=[a.name for a in message.attachments.all() if can_attachment(request.user,a)]
-            sections.append((heading,message.body + ('\nAttachments: '+', '.join(files) if files else '')))
+            options='\n'.join(f"{o.get('kind','travel').title()}: {o['label']}\n{o['detail']}\nSource: {o['source_url']}"
+                              for o in message.metadata.get('options',[]))
+            sections.append((heading,message.body + ('\n'+options if options else '') + ('\nAttachments: '+', '.join(files) if files else '')))
         for quote in req.quotes.prefetch_related('approvals').all():
             decisions='\n'.join(f'{a.name_snapshot}: {a.get_decision_display()}' for a in quote.approvals.all())
             sections.append((quote.reference+(' (superseded)' if quote.superseded else ''),
@@ -68,15 +71,23 @@ def request_edit(request,req_id):
         if req.status not in ('pending','in_progress','awaiting_client') or req.quotes.exists():
             messages.info(request,'A quotation or booking already exists. Send Sama a message to request a revision.')
             return redirect('request_detail',req_id=req.pk)
+        previous={k:getattr(req,k) for k in ('origin','destination','departure','return_date','travellers','service_type')}
         form=RequestForm(request.POST or None,instance=req)
         if request.method=='POST' and form.is_valid():
+            if req.source_draft_id and itinerary_changed(previous,form.cleaned_data):
+                draft=req.source_draft
+                preferences=preference_text(draft.summary.get('selections',{}))
+                if preferences:
+                    block='\n\nSelected travel preferences (Sama to verify):\n'+preferences
+                    form.instance.requirements=form.instance.requirements.replace(block,'').strip()
+                    draft.summary['selections']={};draft.save(update_fields=['summary','updated_at'])
             form.save()
             msg=workflow.event(req,f'{request.user.label} updated the trip details. Sama will review the revised request.',request.user)
             notifications.notify(req,'Trip details updated for '+req.reference,f'event:{msg.pk}',actor=request.user,email=True)
             messages.success(request,'Trip details updated.')
             return redirect('request_detail',req_id=req.pk)
-    return render(request,'portal/form.html',{'page_title':'Edit travel request','heading':'Update your trip details',
-        'description':req.reference,'form':form,'button':'Save changes','back':reverse('request_detail',args=[req.pk])})
+    from .views import request_detail
+    return request_detail(request,req_id,edit_form=form)
 
 
 @login_required

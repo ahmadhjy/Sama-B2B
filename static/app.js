@@ -59,6 +59,37 @@ if (planner) {
   const manual = document.querySelector('#manual-request');
   const available = planner.dataset.available === 'true';
   const hint = document.querySelector('#planner-next-hint');
+  let selections=JSON.parse(document.querySelector('#chat-selections')?.textContent||'{}');
+  let tripDetails=JSON.parse(document.querySelector('#draft-trip')?.textContent||'{}');
+  function fillTrip(details){
+    ['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements'].forEach(key=>{
+      const field=requestForm.elements.namedItem(key);
+      if(field)field.value=details[key]||(key==='service_type'?'travel':'');
+    });
+  }
+  function showSelections(result){
+    selections=result.selections;
+    const box=document.querySelector('#selected-itinerary');box.hidden=!Object.keys(selections).length;
+    const list=document.querySelector('#selected-options');list.replaceChildren();
+    Object.entries(selections).forEach(([kind,option])=>{
+      const row=document.createElement('div');const title=document.createElement('strong');title.textContent=kind[0].toUpperCase()+kind.slice(1)+' · '+option.label;
+      const detail=document.createElement('small');detail.textContent=option.detail;row.append(title,detail);list.append(row);
+    });
+    document.querySelector('#package-estimate').textContent=result.estimate?`Estimated total: ${result.estimate.low} – ${result.estimate.high} ${result.estimate.currency}`:'Sama will confirm the price in your quotation.';
+    conversation.querySelectorAll('[data-option-id]').forEach(radio=>{
+      if(result.stale_message_indexes?.includes(Number(radio.value.split(':')[0]))){
+        radio.dataset.stale='true';radio.disabled=true;
+      }
+      radio.checked=Object.values(selections).some(option=>option.id===radio.value);
+      radio.closest('.option-row').classList.toggle('selected',radio.checked);
+    });
+  }
+  conversation.addEventListener('change',async event=>{
+    const radio=event.target.closest('[data-option-id]');if(!radio||busy)return;
+    setBusy(true);
+    try{const result=await postJSON(planner.dataset.selectUrl,{option_id:radio.value});showSelections(result);setBusy(false);hint.textContent='Preference saved. Select Review my request to check and send this trip.';}
+    catch(err){showSelections({selections});setBusy(false);error.textContent=err.message;}
+  });
   let edited = false;
   let editVersion = 0;
   let hasConversation = !!conversation.querySelector('.outgoing');
@@ -75,6 +106,7 @@ if (planner) {
     }
   }
   if (!review.hidden) showReview('', false);
+  if(document.querySelector('#batch-review'))document.querySelector('#batch-review').scrollIntoView({block:'start'});
   const validationError = document.querySelector('#request-errors');
   if (validationError) {
     validationError.focus({preventScroll:true});
@@ -104,6 +136,8 @@ if (planner) {
       const response=await fetch(planner.dataset.saveUrl,{method:'POST',credentials:'same-origin',body,headers:{'X-CSRFToken':csrf()}});
       const result=await response.json();
       if(!response.ok) throw new Error(result.error || 'Could not save this draft.');
+      showSelections(result);
+      tripDetails=result.trip;
       if (editVersion===savingVersion) edited=!!requestForm.elements.namedItem('traveller_details').value;
       error.textContent=editVersion===savingVersion
         ? 'Reviewed trip details saved. Private details and selected files stay in this form until you submit.'
@@ -128,20 +162,30 @@ if (planner) {
     const body = document.createElement('div'); body.className = 'message-body'; body.textContent = message.content;
     element.append(label,body);
     if(message.options?.length){
-      const cards=document.createElement('div');cards.className='travel-options';
-      message.options.slice(0,2).forEach(option=>{
-        const card=document.createElement('div');card.className='travel-option';
-        const title=document.createElement('strong');title.textContent=option.label;
-        const detail=document.createElement('p');detail.textContent=option.detail;
-        const note=document.createElement('small');note.textContent='Published information · Sama verifies availability';
-        const choose=document.createElement('button');choose.type='button';choose.textContent='Choose this preference';
-        choose.addEventListener('click',()=>{input.value=`I prefer ${option.label}. ${option.detail} Please include this preference in my request for Sama to verify.`;input.focus();});
-        card.append(title,detail,note);
-        try {const url=new URL(option.source_url);if(['https:','http:'].includes(url.protocol)){
-          const link=document.createElement('a');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';link.textContent='View source';card.append(link);
-        }}catch(_){}
-        card.append(choose);cards.append(card);
-      });element.append(cards);
+      ['flight','hotel','travel'].forEach(kind=>{
+        const choices=message.options.map((option,index)=>({...option,index})).filter(option=>(option.kind||'travel')===kind);
+        if(!choices.length)return;
+        const group=document.createElement('section');group.className='option-group '+kind;
+        const heading=document.createElement('div');heading.className='option-group-heading';
+        const title=document.createElement('strong');title.textContent=kind==='flight'?'✈ Flight options':kind==='hotel'?'▤ Hotel options':'✦ Travel options';
+        const caption=document.createElement('small');caption.textContent='Published options · Sama confirms availability';heading.append(title,caption);group.append(heading);
+        choices.forEach(option=>{
+          const card=document.createElement('article');card.className='option-row';
+          const choice=document.createElement('label');choice.className='option-choice';
+          const radio=document.createElement('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;
+          const description=document.createElement('span');description.className='option-description';
+          const label=document.createElement('strong');label.textContent=option.label+(option.stars?' '+option.stars+' ★':'');
+          const detail=document.createElement('span');detail.textContent=option.detail;description.append(label,detail);
+          const price=document.createElement('span');price.className='option-price';
+          const amount=document.createElement('strong');amount.textContent=option.price_min?`${option.price_min}${option.price_max!==option.price_min?' – '+option.price_max:''} ${option.currency}`:'Price to be confirmed';
+          const basis=document.createElement('small');basis.textContent=option.price_min?(option.price_basis==='per_night'?'per night':option.price_basis==='per_person'?'per passenger':'party / stay total')+' · Estimate':'';price.append(amount,basis);
+          choice.append(radio,description,price);card.append(choice);
+          try{const url=new URL(option.source_url);if(['https:','http:'].includes(url.protocol)){
+            const source=document.createElement('a');source.className='option-source';source.href=url.href;source.target='_blank';source.rel='noopener noreferrer';source.textContent='View source ↗';card.append(source);
+          }}catch(_){}
+          group.append(card);
+        });element.append(group);
+      });
     }
     if (message.sources?.length) {
       const sources = document.createElement('div'); sources.className = 'source-links';
@@ -154,13 +198,14 @@ if (planner) {
       });
       element.append(sources);
     }
-    conversation.append(element); conversation.scrollTop=conversation.scrollHeight;
+    conversation.insertBefore(element, document.querySelector('#selected-itinerary')); conversation.scrollTop=conversation.scrollHeight;
   }
   function setBusy(value) {
     busy=value; form.querySelector('button').disabled=value || !available;
     summary.disabled=value || !available || !hasConversation;
     submit.disabled=value;
     manual.disabled=value;
+    conversation.querySelectorAll('[data-option-id]').forEach(radio=>radio.disabled=value||radio.dataset.stale==='true');
     document.querySelector('#save-draft').disabled=value;
     requestForm.setAttribute('aria-busy', String(value));
     error.textContent=value?'Your assistant is working on it…':'';
@@ -169,7 +214,7 @@ if (planner) {
     event.preventDefault(); if (busy || !input.value.trim()) return;
     const message=input.value.trim(); append({role:'user',content:message}); hasConversation=true;input.value='';setBusy(true);
     if (!review.hidden) document.querySelector('#review-status').textContent='You have added to the chat. Update the form yourself or select Review my request again before submitting.';
-    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); setBusy(false);hint.textContent='Continue chatting, or click Review my request to prepare your form. You can fill any missing details there.'; }
+    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); if(result.message.selections)showSelections(result.message); if(result.message.trip && Object.keys(result.message.trip).length){tripDetails=result.message.trip;if(!edited)fillTrip(tripDetails);} setBusy(false);hint.textContent='Choose flight and hotel options above, then click Review my request to send this trip to Sama.'; }
     catch (err) {setBusy(false);error.textContent=err.message;}
   });
   summary.addEventListener('click',async () => {
@@ -182,11 +227,9 @@ if (planner) {
     editableFields.forEach(field=>{field.readOnly=true;});
     selects.forEach(field=>{field.disabled=true;});
     try {
-      const result=await postJSON(planner.dataset.aiUrl,{action:'summary'});
-      ['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements'].forEach(key=>{
-        const field=requestForm.elements.namedItem(key);
-        if (field) field.value=result.summary[key] || (key==='service_type'?'travel':'');
-      });
+      const result=['title','origin','destination'].some(key=>tripDetails[key])?{summary:tripDetails}:await postJSON(planner.dataset.aiUrl,{action:'summary'});
+      fillTrip(result.summary);
+      if(result.summary.selections)showSelections(result.summary);
       edited=!!requestForm.elements.namedItem('traveller_details').value;
       if (requestForm.elements.namedItem('budget').value) document.querySelector('#extra-details').open=true;
       setBusy(false);error.textContent='Your form is ready below. It has not been sent yet.';
@@ -239,3 +282,5 @@ if(companyCodes){
     document.querySelector('#owner-company-name').textContent=company?.name || (code.value.trim() ? 'To be confirmed from Sama Accounting' : 'Enter the accounting client code below');};
   code.addEventListener('input',update);update();
 }
+
+document.querySelectorAll('a[href="#edit-trip-details"]').forEach(link=>link.addEventListener('click',()=>{const editor=document.querySelector('#edit-trip-details');if(editor)editor.open=true;}));

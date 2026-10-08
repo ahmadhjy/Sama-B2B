@@ -1,4 +1,4 @@
-# Client updates — 5 October 2026
+# Client updates — October 2026
 
 Reviewed the Sama Tours written notes, images and Tailwind references in their Saturday-to-Sunday order. Voice notes and the final two unrelated Monday HTML attachments are excluded, as requested.
 
@@ -9,7 +9,7 @@ Reviewed the Sama Tours written notes, images and Tailwind references in their S
 3. Passport date/nationality note: day/month/year expiry selectors and country selection, preserving existing nationality values.
 4. [Profile](https://play.tailwindcss.com/gQ4i0HdCGc): grouped contact, travel-document and notification sections.
 5. [Owner dashboard](https://play.tailwindcss.com/KNaGycUxKj): direct personal-request access, team count and distinct company/personal request navigation.
-6. Flight suggestions and preview notes, then [trip planner](https://play.tailwindcss.com/YX5rObFsIB): separate saved trip drafts, close/restore, editable reviews, batch submission, supporting files and quick chat prompts. At most two sourced flight/hotel preference cards; the server requires matching search citations. AI replies stay brief and never ask for a budget.
+6. Flight suggestions and preview notes, then [trip planner](https://play.tailwindcss.com/YX5rObFsIB): separate saved trip drafts, close/restore, editable reviews, batch submission, supporting files and quick chat prompts. The 8 October correction expands this to up to four flight and three hotel cards, saved radio selections and review inside chat; the server requires matching search sources. AI replies stay brief and never ask for a budget.
 7. [Submitted request](https://play.tailwindcss.com/ydOdQ7djnJ): visible progress, summary PDF and trip editing before quotation.
 8. [Quotation conversation](https://play.tailwindcss.com/IL0vtch7iS): quotation access inside the conversation and quick message prompts, retaining versioned quotes and attachments.
 9. [Approval progress](https://play.tailwindcss.com/yfRUkyZ9UP) and written quick-approval example: focused approval review, current-version/expiry checks, visible approval state and rate-limited pending-approver reminders.
@@ -37,7 +37,7 @@ All eleven linked Tailwind pages above were reopened and read in chronological o
 
 The company-owner clarification is implemented: **Company name** is shown separately, and **Login user name** remains the accounting client code. Known connected companies show their saved name as the code is entered. A new company's name is confirmed by Accounting during creation/connection; this form does not provide a live lookup of all Accounting clients or let an administrator rename an Accounting client.
 
-Specific differences and outstanding capabilities:
+The following records the 6 October review; the 8 October chat correction below replaces the planner, submitted-tab and approval-layout differences. Other integration boundaries remain:
 
 - **Profile:** password changes use the existing separate Change password page. The Saturday image's inline new-password/confirmation fields are not part of profile completion. Passport expiry uses three selectors instead of the mockup's single date field.
 - **Owner dashboard:** personal requests, team count and navigation are available. The reference's account-balance/credit-standing tile, embedded user-permission list and recent-invoice cards are not reproduced on the dashboard; financial records and people remain on their respective pages.
@@ -54,6 +54,18 @@ Specific differences and outstanding capabilities:
 Voice notes and the two unrelated Monday HTML files remain excluded by the user's instruction. No production deployment or live provider delivery is confirmed by this review.
 
 For this correction, 29 company-account and client-workflow tests passed locally. The client emblems and company-name/code matching were checked in the local preview with fictional data. No model or accounting-bridge change is included in this correction.
+
+## 8 October — chat workspace from the five new reference images
+
+The planner now presents researched options as compact flight and hotel rows inside the assistant conversation. Each reply can include up to four flights and three hotels, with source links, dated details, sourced prices and price units. Unknown prices stay unpriced. Selecting a row saves a preference; it does not reserve a seat or hotel room. The assistant remains brief and never asks for a budget.
+
+The selected itinerary, editable review form and submit button remain in the chat. Review of all open drafts is also available inside the planning conversation. Submitted trip tabs open the saved conversation, including the original option cards, request progress, quotation, designated approvers, reminder and authorized approval controls. Trip editing and cancellation use the existing workflow rules. The reference navy sidebar accompanies the golden logo. Existing account permissions remain in place. Conversation PDFs include the saved option details and sources.
+
+Route, dates, passenger count or service changes clear incompatible selections and disable old draft choices. Preferences are carried into the request sent to Sama. Totals are shown only when both selected prices have the same currency and explicitly cover the full party/stay; nightly and per-person prices are not silently combined.
+
+The mockup's automatic GDS reservation, countdown and ticket issuance labels are not operational claims. The assistant researches published information; Sama verifies live availability, sends the official quotation and completes bookings. This correction introduces no database migration or accounting bridge change. SMS/email configuration is unchanged.
+
+Verification: 125 local tests passed (three PostgreSQL-specific cases skipped locally), JavaScript syntax and migration checks passed. The desktop/mobile preview uses clearly labelled fictional options in an isolated test database. Provider response tests mock OpenAI. A separate live OpenAI check returned a sourced general airline timetable and three hotel cards; it correctly left unverified date-specific availability and prices unconfirmed. A deployed-app check should use the client’s real route/dates before client acceptance.
 
 ## Release and verification
 

@@ -1,0 +1,7 @@
+{% for group in groups %}<section class="option-group {{ group.kind }}" aria-label="{{ group.title }}">
+<div class="option-group-heading"><strong>{% if group.kind == 'flight' %}✈{% elif group.kind == 'hotel' %}▤{% else %}✦{% endif %} {{ group.title }}</strong><small>Published options · Sama confirms availability</small></div>
+{% for option in group.options %}<article class="option-row {% if option.selected %}selected{% endif %}">
+<label class="option-choice">{% if not readonly %}<input type="radio" name="travel-choice-{{ group.kind }}" value="{{ option.id }}" data-option-id="{{ option.id }}" {% if option.selected %}checked{% endif %} {% if option.stale %}data-stale="true" disabled{% endif %}>{% endif %}
+<span class="option-description"><strong>{{ option.label }}{% if option.stars %} <small>{{ option.stars }} ★</small>{% endif %}</strong><span>{{ option.detail }}</span></span>
+<span class="option-price">{% if option.price_min %}<strong>{{ option.price_min|floatformat:2 }}{% if option.price_max != option.price_min %} – {{ option.price_max|floatformat:2 }}{% endif %} {{ option.currency }}</strong><small>{% if option.price_basis == 'per_night' %}per night{% elif option.price_basis == 'per_person' %}per passenger{% else %}party / stay total{% endif %} · Estimate</small>{% else %}<small>Price to be confirmed</small>{% endif %}</span></label>
+<a class="option-source" href="{{ option.source_url }}" target="_blank" rel="noopener noreferrer">View source ↗</a></article>{% endfor %}</section>{% endfor %}

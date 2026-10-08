@@ -1,0 +1,6 @@
+<section class="card inline-review" id="batch-review" tabindex="-1">
+<h2>Review & submit all {{ batch_count }} trips</h2><p>Check each trip. Sama receives a separate request and conversation for each one.</p>
+<form method="post" action="{% url 'drafts_review' %}">{% csrf_token %}{{ batch_forms.management_form }}
+{% for draft, form in batch_draft_forms %}<section class="batch-trip"><h3>{{ forloop.counter }}. {{ draft.title }}</h3><input type="hidden" name="draft_id" value="{{ draft.pk }}"><div class="field-grid">{% for field in form %}{% if field.name != 'budget' and field.name != 'traveller_details' %}{% include 'portal/field.html' %}{% endif %}{% endfor %}</div><details class="optional-details"><summary>Additional details (optional)</summary><div class="field-grid">{% for field in form %}{% if field.name == 'budget' or field.name == 'traveller_details' %}{% include 'portal/field.html' %}{% endif %}{% endfor %}</div></details></section>{% endfor %}
+<div class="submit-panel"><p>Nothing is booked or charged. Sama will prepare your quotations.</p><button class="button primary full">Submit {{ batch_count }} requests to Sama →</button></div>
+</form></section>

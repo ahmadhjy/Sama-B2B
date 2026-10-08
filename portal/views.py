@@ -23,6 +23,7 @@ from django.views.decorators.http import require_POST, require_GET
 from . import workflow
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
 from .ai import AssistantUnavailable, generate
+from .chat import option_groups, preference_text, estimate, itinerary_changed, invalidate_options
 from .auth import allow_attempt
 from .fields import cipher
 from .files import save_attachment, read_upload
@@ -143,10 +144,17 @@ def new_request(request):
                         sensitive=request.POST.get('sensitive')=='on',token='draft-files:'+str(draft.pk))
             return redirect('request_detail',req_id=req.pk)
         except ValidationError as exc: flash_error(request,exc)
-    return render(request,'portal/new_request.html',{'page_title':'New travel request','draft':draft,'form':form,'chat':draft.messages,
+    selections=draft.summary.get('selections',{})
+    batch_drafts=list(Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at')[:12]) if request.GET.get('review_all')=='1' else []
+    BatchForms=formset_factory(RequestForm,extra=0,max_num=12,validate_max=True)
+    batch_forms=BatchForms(initial=[d.summary for d in batch_drafts]) if batch_drafts else None
+    return render(request,'portal/new_request.html',{'page_title':'New travel request','draft':draft,'form':form,
+        'batch_forms':batch_forms,'batch_draft_forms':zip(batch_drafts,batch_forms or []),'batch_count':len(batch_drafts),
+        'chat':option_groups(draft.messages,selections),'selections':selections,'package_estimate':estimate(selections),
+        'submitted_trips':visible_requests(request.user).filter(requester=request.user)[:6],
         'drafts':Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at'),
         'archived_drafts':Draft.objects.filter(user=request.user,archived=True,travelrequest__isnull=True).order_by('-updated_at'),
-        'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary) or request.method=='POST'})
+        'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary.get('reviewed')) or request.method=='POST'})
 
 @login_required
 @require_POST
@@ -170,9 +178,46 @@ def draft_save(request,draft_id):
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
             return JsonResponse({'error':'Wait for the assistant reply before saving.'},status=409)
         # Private traveler information belongs only in the final protected form, never the AI summary.
+        selections=draft.summary.get('selections',{})
+        if itinerary_changed(draft.summary,form.cleaned_data):
+            selections={}
+            invalidate_options(draft.messages)
         draft.summary={k:str(v) if v is not None else '' for k,v in form.cleaned_data.items() if k!='traveller_details'}
+        draft.summary['selections']=selections
+        draft.summary['reviewed']=True
         draft.save()
-    return JsonResponse({'saved':True})
+    return JsonResponse({'saved':True,'trip':draft.summary,'selections':selections,'estimate':estimate(selections),
+                         'stale_message_indexes':[i for i,m in enumerate(draft.messages) if m.get('stale')]})
+
+@login_required
+@require_POST
+def draft_select(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    try:
+        data=json.loads(request.body)
+        indexes=str(data['option_id']).split(':')
+        index,number=map(int,indexes)
+        if index<0 or number<0: raise ValueError()
+    except (ValueError,TypeError,KeyError,UnicodeDecodeError):
+        return JsonResponse({'error':'Choose an option from this trip.'},status=400)
+    with transaction.atomic():
+        draft=get_object_or_404(Draft.objects.select_for_update(),pk=draft_id,user=request.user)
+        if draft.archived or TravelRequest.objects.filter(source_draft=draft).exists():
+            return JsonResponse({'error':'This draft is closed or already submitted.'},status=409)
+        if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+            return JsonResponse({'error':'Wait for the current reply before choosing an option.'},status=409)
+        try:
+            message=draft.messages[index]; option=message['options'][number]
+            if message.get('stale') or message['role']!='assistant' or option['source_url'] not in {s['url'] for s in message.get('sources',[])}:
+                raise ValueError()
+        except (IndexError,KeyError,TypeError,ValueError):
+            return JsonResponse({'error':'This option is no longer available. Refresh your trip.'},status=400)
+        kind=option.get('kind','travel')
+        if kind not in ('flight','hotel','travel'): return JsonResponse({'error':'Invalid option.'},status=400)
+        selections=draft.summary.get('selections',{})
+        selections[kind]=dict(option,id=f'{index}:{number}')
+        draft.summary['selections']=selections;draft.save()
+    return JsonResponse({'selections':selections,'estimate':estimate(selections)})
 
 @login_required
 @require_POST
@@ -193,6 +238,7 @@ def draft_archive(request,draft_id):
 @login_required
 def drafts_review(request):
     if not can_create(request.user): raise PermissionDenied()
+    if request.method=='GET': return redirect(reverse('new_request')+'?review_all=1#batch-review')
     drafts=list(Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at')[:12])
     if not drafts: return redirect('new_request')
     Forms=formset_factory(RequestForm,extra=0,max_num=12,validate_max=True)
@@ -239,12 +285,35 @@ def assistant(request,draft_id):
         if not summary: draft.messages.append({'role':'user','content':content})
         draft.ai_busy_until=timezone.now()+timedelta(seconds=110);draft.save()
         conversation=list(draft.messages)
+        selections=draft.summary.get('selections',{})
+        saved_trip={k:v for k,v in draft.summary.items() if k in RequestForm.Meta.fields and k!='traveller_details' and v}
+        if saved_trip:
+            conversation.append({'role':'user','content':'Current trip details (update only what I change): '+json.dumps(saved_trip)})
+        if selections:
+            conversation.append({'role':'user','content':preference_text(selections)})
     try:
         answer=generate(request.user,conversation,summary=summary)
         with transaction.atomic():
             draft=Draft.objects.select_for_update().get(pk=draft.pk)
-            if summary: draft.summary=answer
-            else: draft.messages.append(answer)
+            if summary:
+                if itinerary_changed(draft.summary,answer):
+                    selections={}
+                    invalidate_options(draft.messages)
+                draft.summary=dict(answer,selections=selections,reviewed=True)
+                answer['selections']=selections
+                answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
+            else:
+                if answer.get('trip'):
+                    if itinerary_changed(draft.summary,answer['trip']):
+                        selections={}
+                        draft.summary['selections']={}
+                        invalidate_options(draft.messages)
+                    draft.summary.update(answer['trip'])
+                draft.messages.append(answer)
+                answer['message_index']=len(draft.messages)-1
+                answer['selections']=selections
+                answer['estimate']=estimate(selections)
+                answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
             draft.ai_busy_until=None;draft.save()
         return JsonResponse({'summary':answer} if summary else {'message':answer})
     except AssistantUnavailable as exc:
@@ -252,13 +321,14 @@ def assistant(request,draft_id):
         return JsonResponse({'error':str(exc)},status=503)
 
 @login_required
-def request_detail(request,req_id):
+def request_detail(request,req_id,edit_form=None):
     req=get_object_or_404(visible_requests(request.user),pk=req_id)
     work=can_work(request.user,req); submit=can_submit_quote(request.user,req)
     thread=req.messages.select_related('author').prefetch_related('attachments').all()
     if not work: thread=thread.filter(internal=False)
     for item in thread:
         item.visible_files=[a for a in item.attachments.all() if can_attachment(request.user,a)]
+        item.option_groups=option_groups([dict(options=item.metadata.get('options',[]))])[0]['option_groups']
     quotes=list(req.quotes.prefetch_related('approvals__user'))
     quote=next((q for q in quotes if not q.superseded),None)
     decision=quote.approvals.filter(user=request.user).first() if quote else None
@@ -269,9 +339,14 @@ def request_detail(request,req_id):
     current=request.user
     steps=[('pending','Submitted'),('in_progress','With Sama'),('quote_sent','Quotation'),('awaiting_approval','Approvals'),('booking','Booking'),('confirmed','Confirmed')]
     index={'pending':0,'in_progress':1,'awaiting_client':1,'quote_sent':2,'awaiting_approval':3,'approved':3,'booking':4,'confirmed':5,'closed':5}.get(req.status,-1)
+    can_edit=submit and req.status in ('pending','in_progress','awaiting_client') and not quotes
     return render(request,'portal/request_detail.html',{'page_title':req.reference,'req':req,'thread':thread,'quote':quote,
+        'edit_form':edit_form or (RequestForm(instance=req) if can_edit else None),
+        'selected_preferences':req.source_draft.summary.get('selections',{}) if req.source_draft else {},
+        'open_drafts':Draft.objects.filter(user=current,archived=False,travelrequest__isnull=True).order_by('created_at'),
+        'submitted_trips':visible_requests(current).filter(requester=req.requester)[:12],
         'history_requests':visible_requests(request.user).filter(requester=request.user)[:40] if request.GET.get('history')=='1' else [],
-        'can_edit':submit and req.status in ('pending','in_progress','awaiting_client') and not quotes,
+        'can_edit':can_edit,
         'quotes':quotes,'decision':decision,'can_work':work,'can_submit':submit,'can_decide':bool(decision and decision.decision=='pending' and current.can_approve and quote and not quote.expired and req.status=='awaiting_approval'),
         'approvers':approvers,'profile':profile,'private_travellers':req.traveller_details if sensitive else '',
         'steps':[{'label':label,'done':i<index,'current':i==index} for i,(_,label) in enumerate(steps)],

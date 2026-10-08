@@ -335,7 +335,7 @@ class PortalTests(TestCase):
         post.return_value=Mock(raise_for_status=lambda:None,json=lambda:{'status':'completed','usage':{'input_tokens':100,'output_tokens':20},'output':[{'type':'message','content':[{'type':'output_text','text':'Explore Bangkok.','annotations':[{'type':'url_citation','url':'https://example.com/flights','title':'Flight source'}]}]}]})
         result=generate(self.requester,[{'role':'user','content':'My passport number: PA1234567. Bangkok from Beirut.'}])
         payload=post.call_args.kwargs['json']
-        self.assertNotIn('PA1234567',json.dumps(payload));self.assertEqual(payload['max_tool_calls'],2);self.assertFalse(payload['store'])
+        self.assertNotIn('PA1234567',json.dumps(payload));self.assertEqual(payload['max_tool_calls'],4);self.assertFalse(payload['store'])
         self.assertEqual(result['sources'][0]['title'],'Flight source')
 
     @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real')

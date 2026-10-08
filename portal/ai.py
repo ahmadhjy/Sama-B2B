@@ -23,10 +23,14 @@ Ask about flights, hotel or transfers only if needed. Do not turn this into a lo
 Do not request names, passport numbers, contact details, passwords or payment data.
 Reply in 1-3 short sentences, normally 20-50 words and at most 70 words. No long introductions,
 itineraries, headings or repeated recaps. Write plain text, without Markdown or bold markers.
-Ask at most one question per reply (related passenger counts
-may be asked together). If recommendations are requested, give at most two concise suggestions.
+Ask at most one question per reply (related passenger counts may be asked together).
+Research and show flight and hotel choices as selectable cards in the chat, as soon as the
+requested route/destination and dates are known. Do not keep collecting details instead of
+answering a request for choices. Passenger counts can be collected after showing schedules.
+Offer up to four distinct flight choices and up to three hotels when sources support them.
+Do not pad the list when fewer options can be verified. Keep prose brief; card details are separate.
 When the basic details are collected, say: "Your trip details are ready. Click Review my request below."
-The visible Review my request button generates an editable form; it does not send anything to Sama.
+The visible Review my request button opens an editable card inside this chat; it does not send anything to Sama.
 If the client wants to finish early, direct them to that button so they can fill any gaps themselves.
 When a client asks for available flights, timings, schedules or flight details, research online sources
 before answering. Prefer the airline's dated timetable or airport flight information, then reputable
@@ -35,6 +39,9 @@ Report verified airline, flight number, departure/arrival airports, local depart
 arrival-day changes and stops concisely, with source links. Include duration or baggage only if sourced.
 If a source only shows a general timetable, label it as general; do not claim it applies to the requested
 date. If sources disagree or exact details cannot be verified, explain the specific gap briefly.
+Keep a sourced flight choice when only some details are verified: list the known airline/route/schedule
+and label the missing date, return flight, timing or price as unverified. Do not hide every flight choice
+merely because complete outbound AND return details are unavailable. Never fill those gaps by guessing.
 Do not refuse to research published schedules merely because you cannot reserve seats. No reservation
 or ticket issuance is requested or performed by this assistant. Flight cards are information/preferences.
 Use web search for current flight/hotel claims and clearly cite sources. Public search does not prove
@@ -66,7 +73,7 @@ def reserve(user):
     month=timezone.now().strftime('%Y-%m')
     budget,_=AIBudget.objects.get_or_create(month=month)
     budget=AIBudget.objects.select_for_update().get(pk=month)
-    # Covers a full model context at long-context rates, 1,500 output tokens and two searches.
+    # Covers a full model context at long-context rates, 3,000 output tokens and four searches.
     # Unknown outcomes keep the reservation; concurrent calls cannot spend the same allowance.
     amount=Decimal('0.35')
     cap=Decimal(str(settings.AI_MONTHLY_LIMIT_USD))
@@ -100,11 +107,12 @@ def generate(user, messages, summary=False):
     size=0
     # The final form must retain details from the beginning of the saved conversation.
     for item in reversed(messages[-40:] if summary else messages[-24:]):
-        content=sanitize(item['content'],user)[:4000]
+        details='\n'.join(f"{o.get('label','')}: {o.get('detail','')} (Source: {o.get('source_url','')})" for o in item.get('options',[]))
+        content=sanitize(item['content']+('\nPreviously shown options:\n'+details if details else ''),user)[:6000]
         size+=len(content)
         if size>(160000 if summary else 24000): break
         conversation.insert(0,{'role':item['role'],'content':content})
-    payload={'model':settings.OPENAI_MODEL,'store':False,'max_output_tokens':1500,
+    payload={'model':settings.OPENAI_MODEL,'store':False,'max_output_tokens':3000,
         'reasoning':{'effort':'low'},'instructions':INSTRUCTIONS+'\nToday: '+str(timezone.localdate()),'input':conversation}
     if summary:
         fields=['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements']
@@ -117,15 +125,24 @@ def generate(user, messages, summary=False):
         # Require research for explicit flight enquiries and their short follow-ups.
         # Other travel intake stays conversational; the model can still search when needed.
         recent_user_text=' '.join(item['content'] for item in conversation[-6:] if item['role']=='user')
-        if re.search(r'\b(flights?|airlines?|airfares?|flight\s+times?|schedules?|timings?)\b',recent_user_text,re.I):
+        if re.search(r'\b(flights?|airlines?|airfares?|flight\s+times?|schedules?|timings?|hotels?|accommodations?)\b',recent_user_text,re.I):
             payload['tool_choice']='required'
-        payload['max_tool_calls']=2
+        payload['max_tool_calls']=4
+        payload['include']=['web_search_call.action.sources']
+        trip_fields=['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements']
+        option_properties={key:{'type':'string'} for key in ['label','detail','source_url','currency']}
+        option_properties.update(kind={'type':'string','enum':['flight','hotel']},
+            price_min={'type':['number','null']},price_max={'type':['number','null']},
+            price_basis={'type':'string','enum':['total','per_person','per_night','unknown']},
+            stars={'type':['integer','null']})
         payload['text']={'format':{'type':'json_schema','name':'travel_reply','strict':True,'schema':{
             'type':'object','properties':{'content':{'type':'string'},'options':{'type':'array','items':{
-                'type':'object','properties':{'label':{'type':'string'},'detail':{'type':'string'},'source_url':{'type':'string'}},
-                'required':['label','detail','source_url'],'additionalProperties':False}}},
-            'required':['content','options'],'additionalProperties':False}}}
-        payload['instructions']+='\nReturn a JSON object: content is your brief conversational reply; options is normally empty. Only when the user asks for specific flight or hotel choices, provide at most two options backed by web-search citations, each with a short label, one-line factual detail and the exact cited source_url. Never offer invented schedules, prices or live availability. Do not include personal details in options. Selection records a preference for Sama, never a reservation. If date-specific flight times cannot be verified, say so briefly and collect the request instead.'
+                'type':'object','properties':option_properties,'required':list(option_properties),'additionalProperties':False}},
+                'trip':{'type':'object','properties':{key:{'type':'string'} for key in trip_fields},
+                        'required':trip_fields,'additionalProperties':False}},
+            'required':['content','options','trip'],'additionalProperties':False}}}
+        payload['instructions']+='''\nFor a flights-and-hotel request, research both categories: check airline/airport schedules first, then hotel sources. Use up to four searches to cover both categories. Return a JSON object: content is the short conversational reply. options contains researched choices, up to four flights plus three hotels, each with kind, label, detail and exact source_url from the current search. Each flight card represents one distinct flight or round-trip itinerary; do not combine several alternative flights in one selectable card. Cite every option. Never offer invented schedules, prices or live availability. Flight detail includes dated outbound AND return flight numbers/times, airports, local time zones, day changes and stops when verified. Hotel detail includes area, room, stay dates/nights, breakfast/cancellation only when verified. Use stars only when sourced. Unknown numeric fields are null; currency is empty when price is unknown. price_min/price_max must both be supported by the cited source for the requested dates; never use remembered or generic rates as a dated estimate. price_basis=total only when the amount covers the full requested passenger party or hotel stay; per_person/per_night when the source gives that unit. Do not infer hotel room counts or multiply rates into totals. If no dated price is verified, still show a sourced schedule/hotel card with null prices. A general flight timetable must be explicitly labelled general in detail. Say briefly when exact dates or availability cannot be verified. Selection records a preference for Sama, never a reservation. Do not include personal identifiers.
+trip retains all basic details explicitly supplied throughout this trip conversation, using YYYY-MM-DD dates and a numeric-string total travellers. Unknown values are empty strings. service_type is flight, hotel, package, transfer or travel. requirements retains adult/child/infant breakdown, duration and preferences. Do not infer all passengers are adults, do not invent dates, and leave budget empty unless volunteered. Derive a return date only from an unambiguous departure plus number of nights. Do not include button instructions in trip fields. When route, dates or passengers change, discard incompatible old recommendations. Card selections are tracked separately; do not copy selected option labels, source links or prices into requirements.'''
     try:
         response=requests.post('https://api.openai.com/v1/responses',json=payload,
             headers={'Authorization':'Bearer '+settings.OPENAI_API_KEY},timeout=(5,85))
@@ -139,6 +156,11 @@ def generate(user, messages, summary=False):
         raise AssistantUnavailable('The assistant response was incomplete. Please try a shorter question or edit the request form.')
     chunks=[]; sources=[]
     for item in data.get('output',[]):
+        if item.get('type')=='web_search_call':
+            for source in (item.get('action') or {}).get('sources',[]):
+                url=source.get('url','')
+                if urlparse(url).scheme in ('https','http'):
+                    sources.append({'url':url,'title':source.get('title') or url})
         for part in item.get('content',[]):
             if part.get('type')=='output_text':
                 chunks.append(part.get('text',''))
@@ -156,16 +178,31 @@ def generate(user, messages, summary=False):
             return {key:str(parsed.get(key,''))[:5000] for key in fields}
         except ValueError:
             raise AssistantUnavailable('Please complete the editable summary manually.')
-    options=[]
+    options=[]; trip={}
     try:
         reply=json.loads(text)
         if isinstance(reply,dict) and isinstance(reply.get('content'),str):
             text=reply['content']
             cited={s['url'] for s in sources}
-            for option in reply.get('options',[])[:2]:
+            counts={'flight':0,'hotel':0,'travel':0}
+            for option in reply.get('options',[])[:12]:
                 if isinstance(option,dict) and option.get('source_url') in cited:
-                    options.append({'label':str(option.get('label',''))[:100],
-                        'detail':str(option.get('detail',''))[:350],'source_url':option['source_url']})
+                    kind=option.get('kind','travel')
+                    if kind not in counts or counts[kind]>={'flight':4,'hotel':3,'travel':2}[kind]: continue
+                    clean={'kind':kind,'label':str(option.get('label',''))[:120],
+                        'detail':str(option.get('detail',''))[:600],'source_url':option['source_url'],
+                        'currency':str(option.get('currency',''))[:3].upper(),
+                        'price_basis':option.get('price_basis','unknown'),'price_min':None,'price_max':None,
+                        'stars':option.get('stars') if type(option.get('stars')) is int and 1<=option['stars']<=5 else None}
+                    low,high=option.get('price_min'),option.get('price_max')
+                    if type(low) in (int,float) and type(high) in (int,float) and 0<low<=high<=10000000 and clean['currency'] in ('USD','EUR','GBP','LBP','AED','SAR') and clean['price_basis'] in ('total','per_person','per_night'):
+                        clean.update(price_min=low,price_max=high)
+                    options.append(clean); counts[kind]+=1
+            if isinstance(reply.get('trip'),dict):
+                trip={key:str(reply['trip'].get(key,'') or '')[:5000] for key in trip_fields}
     except (ValueError,TypeError):
         pass
-    return {'role':'assistant','content':text,'sources':sources[:12],'options':options}
+    unique_sources={s['url']:s for s in sources}
+    ordered=[unique_sources[o['source_url']] for o in options]
+    ordered += [s for url,s in unique_sources.items() if url not in {o['source_url'] for o in options}]
+    return {'role':'assistant','content':text,'sources':ordered[:12],'options':options,'trip':trip}

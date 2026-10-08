@@ -6,6 +6,7 @@ from . import notifications
 from .files import save_attachment, read_upload
 from .models import Approval, Audit, Draft, Message, Quote, TravelRequest, User
 from .permissions import can_create, can_work, can_submit_quote, is_ceo, visible_requests
+from .chat import preference_text, itinerary_changed
 
 def event(req, text, actor=None, **metadata):
     msg=Message.objects.create(request=req,kind='system',body=text,author=actor,metadata=metadata)
@@ -26,11 +27,18 @@ def submit_request(user, draft_id, data):
         return previous
     if draft.archived or draft.ai_busy_until and draft.ai_busy_until>timezone.now():
         raise ValidationError('This draft is closed or the assistant is still replying. Reopen it or wait before submitting.')
+    data=dict(data)
+    if draft.summary.get('selections') and itinerary_changed(draft.summary,data):
+        raise ValidationError('Route, dates or passengers changed. Save your revised trip details, then choose options for the updated trip before submitting.')
+    preferences=preference_text(draft.summary.get('selections',{}))
+    if preferences:
+        data['requirements']=(data.get('requirements','')+'\n\nSelected travel preferences (Sama to verify):\n'+preferences).strip()
     req=TravelRequest.objects.create(company=user.company,requester=user,source_draft=draft,
         reference='HS-'+timezone.localdate().strftime('%y')+'-'+uuid.uuid4().hex[:8].upper(),**data)
     for entry in draft.messages:
         Message.objects.create(request=req,author=user if entry['role']=='user' else None,
-            kind='human' if entry['role']=='user' else 'ai',body=entry['content'],metadata={'sources':entry.get('sources',[])})
+            kind='human' if entry['role']=='user' else 'ai',body=entry['content'],
+            metadata={'sources':entry.get('sources',[]),'options':entry.get('options',[])})
     msg=event(req,f'{user.label} submitted this request. It is waiting for a Sama salesperson.',user)
     notifications.business_notice(req,f'New travel request {req.reference} is waiting in the queue.',f'event:{msg.pk}',url='/queue/')
     staff=User.objects.filter(company__isnull=True,role__in=['ceo','sales'],is_active=True)
