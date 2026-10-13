@@ -1,4 +1,14 @@
 'use strict';
+document.querySelectorAll('[data-portal-choice]').forEach(button => button.addEventListener('click', () => {
+  const corporate=button.dataset.portalChoice==='corporate';
+  document.querySelector('#corporate-signin').hidden=!corporate;
+  document.querySelector('#portal-unavailable-note').hidden=corporate;
+  document.querySelectorAll('[data-portal-choice]').forEach(choice => {
+    const selected=choice===button;
+    choice.classList.toggle('selected',selected);
+    choice.setAttribute('aria-pressed',String(selected));
+  });
+}));
 const csrf = () => document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 async function postJSON(url, data) {
   const response = await fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}, body:JSON.stringify(data)});
