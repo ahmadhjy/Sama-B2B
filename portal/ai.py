@@ -11,6 +11,17 @@ from .models import AIBudget, AICall
 class AssistantUnavailable(Exception):
     pass
 
+MODEL_PRICING = {
+    # Standard processing, USD per million tokens. Cache writes are charged at
+    # 1.25x input; the settlement does not assume any cache discount.
+    'gpt-6-luna': {'input': Decimal('0.1'), 'output': Decimal('0.5'),
+                   'long_input': Decimal('0.2'), 'long_output': Decimal('0.75'),
+                   'reservation': Decimal('0.35')},
+    'gpt-6-astra': {'input': Decimal('10'), 'output': Decimal('50'),
+                    'long_input': Decimal('20'), 'long_output': Decimal('75'),
+                    'reservation': Decimal('6.00')},
+}
+
 INSTRUCTIONS = '''You are HelloSama's travel planning assistant, writing in English.
 Your main job is to collect a simple travel request, one short question at a time.
 Collect departure city, destination(s), departure date, return date or trip duration,
@@ -71,14 +82,15 @@ def sanitize(text, user):
 def reserve(user):
     if not settings.AI_ENABLED or not settings.OPENAI_API_KEY:
         raise AssistantUnavailable('The assistant is not connected yet. You can still complete and submit the request form.')
-    if settings.OPENAI_MODEL != 'gpt-6-luna':
+    pricing=MODEL_PRICING.get(settings.OPENAI_MODEL)
+    if pricing is None:
         raise AssistantUnavailable('The assistant model needs a reviewed pricing configuration. Please use the request form.')
     month=timezone.now().strftime('%Y-%m')
     budget,_=AIBudget.objects.get_or_create(month=month)
     budget=AIBudget.objects.select_for_update().get(pk=month)
-    # Covers a full model context at long-context rates, 3,000 output tokens and four searches.
+    # Reserve conservatively for this model's bounded conversation, output and searches.
     # Unknown outcomes keep the reservation; concurrent calls cannot spend the same allowance.
-    amount=Decimal('0.35')
+    amount=pricing['reservation']
     cap=Decimal(str(settings.AI_MONTHLY_LIMIT_USD))
     if budget.spent+budget.reserved+amount>cap:
         raise AssistantUnavailable('This month’s assistant allowance has been reached. You can continue with the editable request form.')
@@ -95,8 +107,9 @@ def settle(call, response):
         cost=call.reservation
     else:
         inputs=Decimal(str(usage['input_tokens'])); outputs=Decimal(str(usage['output_tokens']))
-        input_rate=Decimal('0.2') if inputs>272000 else Decimal('0.1')
-        output_rate=Decimal('0.75') if inputs>272000 else Decimal('0.5')
+        pricing=MODEL_PRICING[settings.OPENAI_MODEL]
+        input_rate=pricing['long_input'] if inputs>272000 else pricing['input']
+        output_rate=pricing['long_output'] if inputs>272000 else pricing['output']
         searches=sum(1 for item in response.get('output',[]) if item.get('type')=='web_search_call')
         # Treat all inputs as uncached; add a small margin rather than undercounting cache writes.
         cost=(inputs*input_rate*Decimal('1.25')+outputs*output_rate)/1000000+Decimal('0.01')*searches

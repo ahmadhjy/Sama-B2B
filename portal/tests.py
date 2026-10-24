@@ -317,7 +317,7 @@ class PortalTests(TestCase):
     def test_accounting_outage_fails_closed(self,check):
         self.signin(self.requester);self.assertEqual(self.client.get('/').status_code,503)
 
-    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real',AI_MONTHLY_LIMIT_USD=20)
+    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real',OPENAI_MODEL='gpt-6-luna',AI_MONTHLY_LIMIT_USD=20)
     def test_ai_budget_reservation_caps_concurrent_allowance(self):
         for _ in range(57): reserve(self.requester)
         with self.assertRaises(AssistantUnavailable): reserve(self.requester)
@@ -326,8 +326,16 @@ class PortalTests(TestCase):
     @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real',AI_MONTHLY_LIMIT_USD=20)
     def test_ai_budget_settlement_idempotent(self):
         call=reserve(self.requester);data={'usage':{'input_tokens':1000,'output_tokens':500},'output':[{'type':'web_search_call'}]}
+        self.assertEqual(call.reservation,Decimal('6.00'))
         settle(call,data);budget=AIBudget.objects.get();cost=budget.spent
+        self.assertEqual(cost,Decimal('0.047500'))
         settle(call,data);budget.refresh_from_db();self.assertEqual(budget.spent,cost);self.assertEqual(budget.reserved,0)
+
+    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real',AI_MONTHLY_LIMIT_USD=20)
+    def test_astra_reservation_respects_monthly_cap(self):
+        for _ in range(3): reserve(self.requester)
+        with self.assertRaises(AssistantUnavailable): reserve(self.requester)
+        self.assertEqual(AIBudget.objects.get().reserved,Decimal('18.00'))
 
     @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-key-not-real')
     @patch('portal.ai.requests.post')
@@ -335,6 +343,7 @@ class PortalTests(TestCase):
         post.return_value=Mock(raise_for_status=lambda:None,json=lambda:{'status':'completed','usage':{'input_tokens':100,'output_tokens':20},'output':[{'type':'message','content':[{'type':'output_text','text':'Explore Bangkok.','annotations':[{'type':'url_citation','url':'https://example.com/flights','title':'Flight source'}]}]}]})
         result=generate(self.requester,[{'role':'user','content':'My passport number: PA1234567. Bangkok from Beirut.'}])
         payload=post.call_args.kwargs['json']
+        self.assertEqual(payload['model'],'gpt-6-astra')
         self.assertNotIn('PA1234567',json.dumps(payload));self.assertEqual(payload['max_tool_calls'],4);self.assertFalse(payload['store'])
         self.assertEqual(result['sources'][0]['title'],'Flight source')
 
@@ -344,7 +353,7 @@ class PortalTests(TestCase):
         import requests
         post.side_effect=requests.Timeout()
         with self.assertRaises(AssistantUnavailable):generate(self.requester,[{'role':'user','content':'Bangkok'}])
-        self.assertEqual(AIBudget.objects.get().reserved,Decimal('0.35'))
+        self.assertEqual(AIBudget.objects.get().reserved,Decimal('6.00'))
 
     def test_disabled_ai_keeps_manual_request_available(self):
         self.signin(self.requester);draft=Draft.objects.create(user=self.requester)

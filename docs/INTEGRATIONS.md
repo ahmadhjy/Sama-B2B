@@ -16,11 +16,11 @@ Both dashboards therefore manage the same primary identity, with accounting as t
 
 ## OpenAI
 
-The backend calls the Responses API with GPT-6 Luna, public `web_search`, `store=false`, a maximum of two tool calls and a 1,500-token output bound. Context is limited to recent travel conversation text. The summary uses strict structured output and then goes through Django form validation and explicit user submission. No model output is treated as an application instruction or permission decision.
+The backend calls the Responses API with GPT-6 Astra, public `web_search`, `store=false`, a maximum of four tool calls and a 3,000-token output bound. Context is limited to recent travel conversation text. The summary uses strict structured output and then goes through Django form validation and explicit user submission. No model output is treated as an application instruction or permission decision.
 
-The reviewed price basis is $0.10 per million input tokens / $0.50 per million output tokens at normal context, long-context multipliers when applicable, and $0.01 per web search call. A $0.35 reservation covers the allowed call's full-context upper bound plus searches and a cache-write margin. Completed usage is reconciled conservatively, without cache discounts. Model changes are blocked until pricing/budget assumptions are reviewed. Provider pricing changes also require review. Application usage limits do not cover other applications using the same key.
+The reviewed Astra price basis is $10 per million input tokens / $50 per million output tokens at normal context, with $20/$75 above 272,000 input tokens, and $0.01 per web search call. The app reserves $6 per call against its $20 monthly allowance, then reconciles completed token and search usage conservatively without cache discounts. Luna remains a reviewed rollback option at its own rates and $0.35 reservation. Provider pricing changes require review. Application usage limits do not cover other applications using the same key.
 
-Sources: [model capabilities](https://developers.openai.com/api/docs/models/gpt-6-luna), [pricing](https://developers.openai.com/api/docs/pricing), [web search](https://developers.openai.com/api/docs/guides/tools-web-search), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+Sources: [Astra model capabilities](https://developers.openai.com/api/docs/models/gpt-6-astra), [pricing](https://developers.openai.com/api/docs/pricing), [web search](https://developers.openai.com/api/docs/guides/tools-web-search), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 ## IONOS
 

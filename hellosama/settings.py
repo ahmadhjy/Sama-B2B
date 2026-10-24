@@ -71,7 +71,7 @@ ACCOUNTING_SHARED_SECRET = env('ACCOUNTING_SHARED_SECRET')
 ACCOUNTING_ENABLED = bool(ACCOUNTING_BASE_URL and ACCOUNTING_SHARED_SECRET)
 ACCOUNTING_STATUS_TTL = 60
 OPENAI_API_KEY = env('OPENAI_API_KEY')
-OPENAI_MODEL = env('OPENAI_MODEL', 'gpt-6-luna')
+OPENAI_MODEL = env('OPENAI_MODEL', 'gpt-6-astra')
 AI_MONTHLY_LIMIT_USD = min(float(env('AI_MONTHLY_LIMIT_USD', '20')), 20)
 AI_ENABLED = flag('AI_ENABLED', False)
 # Quote/catalogue access only. No provider purchase routes are implemented.
