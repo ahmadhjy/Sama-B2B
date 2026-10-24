@@ -21,9 +21,9 @@ Roles:
 
 ## From conversation to confirmed booking
 
-1. Plan a trip with the assistant, or fill in the form directly. Drafts are private and are not in the sales queue.
-2. Select **Review my request**. Check the route, dates, passenger breakdown and preferences. Budget is optional and the assistant never asks for it.
-3. Submit the request. It receives a reference and enters Pending.
+1. Choose your services, then follow the chat’s short question cards for the route, dates and travellers. Drafts save as you go and are private.
+2. Choose any available service offers or select **Let Sama find options for me**. The final review opens automatically, showing the trip as a request card. Use its Edit actions for changes. The assistant never asks for a budget.
+3. Select **Send request to Sama**. A success receipt shows the saved reference and a link to its conversation. The request enters Pending.
 4. A Sama salesperson takes over. Their name appears in the conversation and the status changes to In progress.
 5. Discuss details and attach files. Status updates appear as system boxes in the conversation. Messages are retained.
 6. Sama prepares a quotation, including price/currency, details, inclusions, exclusions, terms and validity. The client can download its branded PDF.
@@ -54,7 +54,7 @@ Delivery status is visible in Operations. Uncertain delivery outcomes need a pro
 
 The assistant uses public travel information and source links. It cannot reserve seats, guarantee prices, approve a quote or submit a request. Passport fields, attachments and financial records are not supplied to it. Known personal identifiers in typed chat are redacted before an API call; users should still keep all sensitive information in private profile/document fields.
 
-The monthly allowance is shared across the entire application and capped at $20. The app reserves a conservative maximum per API call and reconciles completed calls from usage data. Timed-out calls retain their reservation because billing may have occurred. When the allowance is unavailable or a provider is down, the request form continues to work.
+The monthly allowance is shared across the entire application and capped at $20. The app reserves a conservative amount per API call and reconciles completed calls from usage data. Timed-out calls retain their reservation because billing may have occurred. The guided question cards remain available when the AI allowance is unavailable. Clients can ask Sama to find options when a provider is down.
 
 ## Business defaults to review during live testing
 
@@ -70,9 +70,9 @@ The monthly allowance is shared across the entire application and capped at $20.
 
 Company users now see Home and a direct New travel request menu entry. Company owners see Company requests and Company users; individual requesters retain My requests. Dashboard shortcuts open existing pages without changing permissions.
 
-In New travel request, describe the trip in the chat, then select **Review my request** directly below the conversation. The assistant asks only for missing essentials, never asks for a budget, and keeps replies short. It collects departure city, destinations, dates/duration and adults/children/infants. Passenger breakdown and duration are preserved in the trip details field; total passengers includes infants.
+In New travel request, select Flights, Hotel, Transfers, eSIM or Travel insurance. Choose all that apply. The chat then presents one active question card at a time: route, departure, return date or nights, and adults/children/infants. You can also type naturally in the composer. Known trip details are saved, and the chat asks for remaining details. Small saved-detail chips let you change an earlier answer.
 
-The review button fills an editable form and brings it into view. Check it, fill required gaps and select **Submit request to Sama**. No request enters the queue until that final action. You can use **Fill in the form myself** at any time. The manual form remains available if AI is unavailable. Additional optional fields are collapsed to keep the main form focused. Generating again after editing asks before replacing trip edits and preserves private traveller details.
+Each selected service has its own short flow. Provider requirements appear only for that service; insurance birth dates are used transiently for the quote. Choose an offer in the chat to continue, or let Sama find one. After an optional note, a review pop-up opens automatically. It shows the route, dates, travellers and service choices, with Edit actions and optional supporting documents. Select **Send request to Sama** to submit. The success message and reference appear only after submission succeeds. There is no separate summary-generation step.
 
 Existing requests now show brief next-step prompts for quotations, approvals and booking progress. The quotation prompt links directly to the quotation, including on mobile.
 
@@ -80,9 +80,9 @@ For email/SMS activation, see [ACTIVATE_NOTIFICATIONS.md](ACTIVATE_NOTIFICATIONS
 
 ## Saved trips, approvals and travel overview — 5 October 2026
 
-- **Another trip** starts a separate private draft. Use the trip tabs to switch between them. Select **Save reviewed details** before switching after editing the form. This saves valid trip details; private traveller details and selected files must be submitted from the current form. **Close this draft** keeps it under **Closed drafts**, where it can be restored. Up to 12 drafts can be open.
+- **New trip** starts a separate private draft. Open **Your trips** to switch between saved drafts and submitted conversations. Question-card answers save automatically. Selected files are sent only when submitting the current request. **Close this draft** keeps it under **Closed drafts**, where it can be restored. Up to 12 drafts can be open.
 - **Review & submit all open drafts** presents each trip for review. Complete every required field before submitting. They become separate requests together; an invalid form prevents the batch from being submitted. Use the individual trip form if you need to attach files at submission.
-- If the assistant provides cited flight or hotel suggestions, **Choose this preference** puts the choice in your message box. Send it to include it in the conversation. It is a preference for Sama to verify, not a reservation or a live availability guarantee.
+- Select a flight or provider offer card to save it and move to the next service. The final review shows each choice. Selection is a preference for Sama to verify before booking.
 - **Company requests** can be searched by reference, trip, route, booking reference or requester name, and filtered by service, status and departure dates. **My personal requests** shows your own requests and opens a conversation alongside recent history.
 - Open a request to download its summary or export its conversation as a PDF. Exports follow the same permissions as the conversation. Files remain in **Files & documents**. You can edit trip details before a quotation exists; after that, ask Sama for a revision in the conversation.
 - Approval links open a focused review page. Check the amount, itinerary, terms and expiry before deciding. Every designated approver still needs to approve the current quotation. **Remind pending approvers** queues a reminder, limited to once per hour per request. Delivery depends on configured channels and the worker.

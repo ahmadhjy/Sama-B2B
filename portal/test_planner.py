@@ -47,7 +47,7 @@ class PlannerTests(TestCase):
     @patch('portal.views.generate')
     def test_conversation_limit_still_allows_summary(self, generate_mock):
         self.signin(self.requester)
-        draft=Draft.objects.create(user=self.requester,messages=[{'role':'user','content':'Travel details'}]*40)
+        draft=Draft.objects.create(user=self.requester,messages=[{'role':'user','content':'Travel details'}]*80)
         generate_mock.return_value=self.summary()
         url=reverse('assistant',args=[draft.pk])
         self.assertEqual(self.client.post(url,data=json.dumps({'message':'More'}),content_type='application/json').status_code,400)
@@ -73,7 +73,8 @@ class PlannerTests(TestCase):
         form=self.summary();form.update(draft_id=str(draft.pk),departure='2000-01-01',traveller_details='Private traveller note')
         response=self.client.post(reverse('new_request'),form)
         self.assertEqual(response.status_code,200)
-        self.assertContains(response,'data-review-open="true"')
+        self.assertContains(response,'id="request-review"')
+        self.assertContains(response,'type="hidden" name="traveller_details"')
         self.assertContains(response,'Private traveller note')
         self.assertContains(response,'Your request has not been sent')
         self.assertFalse(TravelRequest.objects.filter(source_draft=draft).exists())

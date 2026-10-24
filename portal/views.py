@@ -22,6 +22,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_GET
 from . import workflow
 from . import providers
+from . import concierge
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
 from .ai import AssistantUnavailable, generate
 from .chat import option_groups, preference_text, estimate, itinerary_changed, invalidate_options
@@ -128,23 +129,36 @@ def new_request(request):
             draft=get_object_or_404(Draft,pk=draft_id,user=request.user)
         except (ValueError, ValidationError): raise Http404()
         previous=TravelRequest.objects.filter(source_draft=draft).first()
-        if previous: return redirect('request_detail',req_id=previous.pk)
+        if previous:
+            if request.method=='POST' and request.headers.get('X-Requested-With')=='XMLHttpRequest':
+                return JsonResponse({'submitted':True,'reference':previous.reference,'url':reverse('request_detail',args=[previous.pk])})
+            return redirect('request_detail',req_id=previous.pk)
     else:
         draft=Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('-updated_at').first()
         draft=draft or Draft.objects.create(user=request.user)
-    form=RequestForm(request.POST or None,initial=draft.summary)
+    form=RequestForm(request.POST or None,initial=concierge.values(draft.summary))
     if request.method=='POST' and form.is_valid():
         try:
             uploads=request.FILES.getlist('attachments')
             if len(uploads)>5: raise ValidationError('Attach at most five files.')
             for upload in uploads: read_upload(upload)
             with transaction.atomic():
+                if request.POST.get('journey_version') is not None:
+                    current=Draft.objects.select_for_update().get(pk=draft.pk,user=request.user)
+                    if str(concierge.state(current.summary)['version'])!=request.POST['journey_version']:
+                        raise ValidationError('This trip changed in another tab. Refresh to review the latest details before sending.')
                 req=workflow.submit_request(request.user,draft.pk,form.cleaned_data)
                 if uploads:
                     workflow.add_message(request.user,req.pk,'Supporting documents for this request.',uploads,
                         sensitive=request.POST.get('sensitive')=='on',token='draft-files:'+str(draft.pk))
+            if request.headers.get('X-Requested-With')=='XMLHttpRequest':
+                return JsonResponse({'submitted':True,'reference':req.reference,'url':reverse('request_detail',args=[req.pk])})
             return redirect('request_detail',req_id=req.pk)
-        except ValidationError as exc: flash_error(request,exc)
+        except ValidationError as exc:
+            if request.headers.get('X-Requested-With')=='XMLHttpRequest': return JsonResponse({'error':' '.join(exc.messages)},status=400)
+            flash_error(request,exc)
+    if request.method=='POST' and request.headers.get('X-Requested-With')=='XMLHttpRequest':
+        return JsonResponse({'error':'Please check the trip details.','fields':form.errors.get_json_data()},status=400)
     selections=draft.summary.get('selections',{})
     batch_drafts=list(Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at')[:12]) if request.GET.get('review_all')=='1' else []
     BatchForms=formset_factory(RequestForm,extra=0,max_num=12,validate_max=True)
@@ -156,6 +170,7 @@ def new_request(request):
         'drafts':Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at'),
         'archived_drafts':Draft.objects.filter(user=request.user,archived=True,travelrequest__isnull=True).order_by('-updated_at'),
         'provider_countries':providers.countries(),'provider_available':providers.available(),
+        'guide':concierge.state(draft.summary),'guide_values':concierge.values(draft.summary),
         'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary.get('destination')) or request.method=='POST'})
 
 @login_required
@@ -167,6 +182,38 @@ def draft_new(request):
         return redirect('new_request')
     draft=Draft.objects.create(user=request.user)
     return redirect(reverse('new_request')+'?draft='+str(draft.pk))
+
+@login_required
+@require_POST
+def draft_guide(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    try:
+        payload=json.loads(request.body)
+        if not isinstance(payload,dict): raise ValueError()
+    except (ValueError,UnicodeDecodeError): return JsonResponse({'error':'Please check your answer.'},status=400)
+    with transaction.atomic():
+        draft=get_object_or_404(Draft.objects.select_for_update(of=('self',)),pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
+        if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+            return JsonResponse({'error':'Please wait for the current reply.'},status=409)
+        if payload.get('version')!=concierge.state(draft.summary)['version']:
+            return JsonResponse({'error':'This trip changed in another tab. Refresh to continue.'},status=409)
+        try: revised,label=concierge.answer(draft.summary,payload.get('step'),payload.get('values',{}))
+        except (ValidationError,TypeError,ValueError) as exc:
+            return JsonResponse({'error':' '.join(exc.messages) if isinstance(exc,ValidationError) else 'Please check your answer.'},status=400)
+        if itinerary_changed(draft.summary,revised):
+            revised['selections']={};invalidate_options(draft.messages);concierge.reset_options(revised)
+        elif payload.get('step') in ('flight','hotel','esim','insurance'):
+            kind=payload['step'];revised.setdefault('selections',{}).pop(kind,None)
+            for message in draft.messages:
+                for option in message.get('options',[]):
+                    if option.get('kind')==kind: option['expired']=True
+        draft.summary=revised
+        message={'role':'user','content':label,'guided':True}
+        draft.messages.append(message);draft.save()
+    return JsonResponse({'trip':revised,'values':concierge.values(revised),'guide':concierge.state(revised),
+        'message':message,'selections':revised.get('selections',{}),'estimate':estimate(revised.get('selections',{})),
+        'stale_message_indexes':[i for i,m in enumerate(draft.messages) if m.get('stale')],
+        'expired_option_ids':[f'{i}:{j}' for i,m in enumerate(draft.messages) for j,o in enumerate(m.get('options',[])) if o.get('expired')]})
 
 @login_required
 @require_POST
@@ -184,7 +231,10 @@ def draft_save(request,draft_id):
         if itinerary_changed(draft.summary,form.cleaned_data):
             selections={}
             invalidate_options(draft.messages)
+            concierge.reset_options(draft.summary)
+        journey=draft.summary.get('journey')
         draft.summary={k:str(v) if v is not None else '' for k,v in form.cleaned_data.items() if k!='traveller_details'}
+        if journey: draft.summary['journey']=journey
         draft.summary['selections']=selections
         draft.summary['reviewed']=True
         draft.save()
@@ -210,7 +260,7 @@ def draft_select(request,draft_id):
             return JsonResponse({'error':'Wait for the current reply before choosing an option.'},status=409)
         try:
             message=draft.messages[index]; option=message['options'][number]
-            if message.get('stale') or message['role']!='assistant' or option['source_url'] not in {s['url'] for s in message.get('sources',[])}:
+            if message.get('stale') or option.get('expired') or message['role']!='assistant' or option['source_url'] not in {s['url'] for s in message.get('sources',[])}:
                 raise ValueError()
         except (IndexError,KeyError,TypeError,ValueError):
             return JsonResponse({'error':'This option is no longer available. Refresh your trip.'},status=400)
@@ -350,12 +400,12 @@ def assistant(request,draft_id):
         if TravelRequest.objects.filter(source_draft=draft).exists(): return JsonResponse({'error':'This request has already been submitted.'},status=409)
         if draft.archived: return JsonResponse({'error':'Restore this closed draft before continuing.'},status=409)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now(): return JsonResponse({'error':'Please wait for the current reply.'},status=409)
-        if not summary and len(draft.messages)>=40: return JsonResponse({'error':'Please select Review my request below, or fill in the form yourself.'},status=400)
+        if not summary and len(draft.messages)>=80: return JsonResponse({'error':'Your trip details are saved. Continue with the question cards to finish this request.'},status=400)
         if not summary: draft.messages.append({'role':'user','content':content})
         draft.ai_busy_until=timezone.now()+timedelta(seconds=110);draft.save()
         conversation=list(draft.messages)
         selections=draft.summary.get('selections',{})
-        saved_trip={k:v for k,v in draft.summary.items() if k in RequestForm.Meta.fields and k!='traveller_details' and v}
+        saved_trip={k:v for k,v in concierge.values(draft.summary).items() if k!='traveller_details' and v}
         if saved_trip:
             conversation.append({'role':'user','content':'Current trip details (update only what I change): '+json.dumps(saved_trip)})
         if selections:
@@ -368,23 +418,32 @@ def assistant(request,draft_id):
                 if itinerary_changed(draft.summary,answer):
                     selections={}
                     invalidate_options(draft.messages)
+                    concierge.reset_options(draft.summary)
+                journey=draft.summary.get('journey')
                 draft.summary=dict(answer,selections=selections,reviewed=True)
+                if journey: draft.summary['journey']=journey
                 answer['selections']=selections
                 answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
             else:
                 if answer.get('trip'):
+                    if draft.summary.get('journey'):
+                        answer['trip']={k:v for k,v in answer['trip'].items() if v or not draft.summary.get(k)}
                     if itinerary_changed(draft.summary,answer['trip']):
                         selections={}
                         draft.summary['selections']={}
                         invalidate_options(draft.messages)
+                        concierge.reset_options(draft.summary)
                     draft.summary.update(answer['trip'])
+                    concierge.reconcile_ai_trip(draft.summary)
                 draft.messages.append(answer)
                 answer['message_index']=len(draft.messages)-1
                 answer['selections']=selections
                 answer['estimate']=estimate(selections)
                 answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
             draft.ai_busy_until=None;draft.save()
-        return JsonResponse({'summary':answer} if summary else {'message':answer})
+        result={'summary':answer} if summary else {'message':answer}
+        result.update(trip=draft.summary,guide=concierge.state(draft.summary),values=concierge.values(draft.summary))
+        return JsonResponse(result)
     except AssistantUnavailable as exc:
         Draft.objects.filter(pk=draft.pk).update(ai_busy_until=None)
         return JsonResponse({'error':str(exc)},status=503)

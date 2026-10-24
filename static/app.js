@@ -57,7 +57,7 @@ if (thread?.dataset.updatesUrl) {
   },20000);
 }
 const planner = document.querySelector('#planner');
-if (planner) {
+if (planner && !planner.dataset.guided) {
   const conversation = document.querySelector('#assistant-messages');
   const form = document.querySelector('#assistant-form');
   const input = document.querySelector('#chat-input');

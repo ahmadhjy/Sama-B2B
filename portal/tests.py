@@ -358,7 +358,7 @@ class PortalTests(TestCase):
     def test_disabled_ai_keeps_manual_request_available(self):
         self.signin(self.requester);draft=Draft.objects.create(user=self.requester)
         response=self.client.post(reverse('assistant',args=[draft.pk]),data=json.dumps({'message':'Bangkok'}),content_type='application/json')
-        self.assertEqual(response.status_code,503);self.assertContains(self.client.get('/requests/new/'),'Submit request')
+        self.assertEqual(response.status_code,503);self.assertContains(self.client.get('/requests/new/'),'Send request to Sama')
 
     def test_push_ssrf_protection(self):
         for url in ['http://fcm.googleapis.com/test','https://localhost/test','https://169.254.169.254/','https://fcm.googleapis.com.evil.test/x','https://user@fcm.googleapis.com/x']:

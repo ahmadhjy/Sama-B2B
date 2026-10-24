@@ -1,6 +1,8 @@
 # Provider offers in the chat
 
-The concierge collects trip details. As soon as a destination is known, the offer search and editable request review appear automatically in the same conversation. Selecting an offer brings the user to the review; generating a separate summary is no longer required.
+The concierge starts with service cards, then asks for the route, departure, return date or number of nights, and adult/child/infant counts. Only one question card appears at a time. Each chosen service gets its own short flow, with provider offers shown in the conversation. Selecting an offer moves to the next service; users can also ask Sama to find options for them.
+
+After the final optional note, a review pop-up opens automatically. It shows the route, dates, travellers, services and saved options as a request card, with small Edit actions. The client sends that reviewed request to Sama with one button. A receipt and request reference appear only after the server confirms submission. Draft answers survive reloads, and the question cards also work when the AI is unavailable. No separate summary-generation step or full trip form is shown in the normal chat flow.
 
 ## What is connected
 
