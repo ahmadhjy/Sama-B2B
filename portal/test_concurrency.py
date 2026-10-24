@@ -48,9 +48,9 @@ class ConcurrencyTests(TransactionTestCase):
         self.req.refresh_from_db();self.assertEqual(self.req.status,'approved')
         self.assertEqual(self.req.messages.filter(body__startswith='All required approvers').count(),1)
 
-    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-only',AI_MONTHLY_LIMIT_USD=20)
+    @override_settings(AI_ENABLED=True,OPENAI_API_KEY='test-only',OPENAI_MODEL='gpt-6-astra',AI_MONTHLY_LIMIT_USD=20)
     def test_simultaneous_reservations_cannot_overspend(self):
-        AIBudget.objects.create(month=timezone.now().strftime('%Y-%m'),spent=Decimal('19.60'))
+        AIBudget.objects.create(month=timezone.now().strftime('%Y-%m'),spent=Decimal('13.50'))
         def work(user):
             try: reserve(user);return 'reserved'
             except AssistantUnavailable:return 'limited'
