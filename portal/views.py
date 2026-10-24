@@ -1,6 +1,7 @@
 import base64
 import json
 import uuid
+from copy import deepcopy
 from datetime import timedelta
 from io import BytesIO
 from django.conf import settings
@@ -170,6 +171,7 @@ def new_request(request):
         'drafts':Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at'),
         'archived_drafts':Draft.objects.filter(user=request.user,archived=True,travelrequest__isnull=True).order_by('-updated_at'),
         'provider_countries':providers.countries(),'provider_available':providers.available(),
+        'insurance_test':providers.insurance_is_test(),
         'guide':concierge.state(draft.summary),'guide_values':concierge.values(draft.summary),
         'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary.get('destination')) or request.method=='POST'})
 
@@ -200,18 +202,43 @@ def draft_guide(request,draft_id):
         try: revised,label=concierge.answer(draft.summary,payload.get('step'),payload.get('values',{}))
         except (ValidationError,TypeError,ValueError) as exc:
             return JsonResponse({'error':' '.join(exc.messages) if isinstance(exc,ValidationError) else 'Please check your answer.'},status=400)
-        if itinerary_changed(draft.summary,revised):
-            revised['selections']={};invalidate_options(draft.messages);concierge.reset_options(revised)
-        elif payload.get('step') in ('flight','hotel','esim','insurance'):
-            kind=payload['step'];revised.setdefault('selections',{}).pop(kind,None)
+        if itinerary_changed(draft.summary,revised) or (payload.get('step')=='travellers' and
+                draft.summary.get('journey',{}).get('passengers')!=revised.get('journey',{}).get('passengers')):
+            revised['selections']={};invalidate_options(draft.messages);concierge.reset_options(revised,draft.summary)
+        else:
+            affected={payload['step']} if payload.get('step') in ('flight','hotel','esim','insurance') else set()
+            if payload.get('step')=='context':
+                before=concierge.context(draft.summary);shared=concierge.context(revised)
+                changed={key for key in ('country','city_id','nationality','residence') if before.get(key)!=shared.get(key)}
+                affected.update({'hotel','esim','insurance'} if 'country' in changed else set())
+                if changed & {'city_id','nationality'}: affected.add('hotel')
+                if 'residence' in changed: affected.add('insurance')
+                journey=revised['journey']
+                for kind in affected:
+                    detail=journey.get('details',{}).get(kind)
+                    if not detail or detail.get('manual'): continue
+                    journey['completed']=[k for k in journey.get('completed',[]) if k!=kind]
+                    if kind=='hotel' and not shared.get('city_id'):
+                        journey['details'].pop(kind,None)
+                    else:
+                        for key in {'hotel':('country','city_id','city_name','nationality'),'esim':('country',),'insurance':('country','residence')}[kind]:
+                            if shared.get(key): detail[key]=shared[key]
+            for kind in affected: revised.setdefault('selections',{}).pop(kind,None)
             for message in draft.messages:
                 for option in message.get('options',[]):
-                    if option.get('kind')==kind: option['expired']=True
+                    if option.get('kind') in affected: option['expired']=True
+        step=payload.get('step')
+        question=concierge.CONTEXT_QUESTIONS.get(payload.get('values',{}).get('field')) if step=='context' else concierge.QUESTIONS.get(step)
+        automatic=payload.get('automatic') is True and step in ('context','esim')
+        additions=[]
+        if question and not automatic:
+            additions.append({'role':'assistant','content':question,'guided':True})
+        message={'role':'assistant' if automatic else 'user','content':('Using '+label+'.') if automatic else label,'guided':True}
+        additions.append(message)
         draft.summary=revised
-        message={'role':'user','content':label,'guided':True}
-        draft.messages.append(message);draft.save()
+        draft.messages.extend(additions);draft.save()
     return JsonResponse({'trip':revised,'values':concierge.values(revised),'guide':concierge.state(revised),
-        'message':message,'selections':revised.get('selections',{}),'estimate':estimate(revised.get('selections',{})),
+        'message':message,'messages':additions,'selections':revised.get('selections',{}),'estimate':estimate(revised.get('selections',{})),
         'stale_message_indexes':[i for i,m in enumerate(draft.messages) if m.get('stale')],
         'expired_option_ids':[f'{i}:{j}' for i,m in enumerate(draft.messages) for j,o in enumerate(m.get('options',[])) if o.get('expired')]})
 
@@ -231,7 +258,9 @@ def draft_save(request,draft_id):
         if itinerary_changed(draft.summary,form.cleaned_data):
             selections={}
             invalidate_options(draft.messages)
-            concierge.reset_options(draft.summary)
+            revised=dict(form.cleaned_data,journey=deepcopy(draft.summary.get('journey',{})))
+            concierge.reset_options(revised,draft.summary)
+            draft.summary['journey']=revised['journey']
         journey=draft.summary.get('journey')
         draft.summary={k:str(v) if v is not None else '' for k,v in form.cleaned_data.items() if k!='traveller_details'}
         if journey: draft.summary['journey']=journey
@@ -400,7 +429,7 @@ def assistant(request,draft_id):
         if TravelRequest.objects.filter(source_draft=draft).exists(): return JsonResponse({'error':'This request has already been submitted.'},status=409)
         if draft.archived: return JsonResponse({'error':'Restore this closed draft before continuing.'},status=409)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now(): return JsonResponse({'error':'Please wait for the current reply.'},status=409)
-        if not summary and len(draft.messages)>=80: return JsonResponse({'error':'Your trip details are saved. Continue with the question cards to finish this request.'},status=400)
+        if not summary and sum(not m.get('guided') for m in draft.messages)>=80: return JsonResponse({'error':'Your trip details are saved. Continue with the question cards to finish this request.'},status=400)
         if not summary: draft.messages.append({'role':'user','content':content})
         draft.ai_busy_until=timezone.now()+timedelta(seconds=110);draft.save()
         conversation=list(draft.messages)
@@ -418,7 +447,9 @@ def assistant(request,draft_id):
                 if itinerary_changed(draft.summary,answer):
                     selections={}
                     invalidate_options(draft.messages)
-                    concierge.reset_options(draft.summary)
+                    revised=dict(answer,journey=deepcopy(draft.summary.get('journey',{})))
+                    concierge.reset_options(revised,draft.summary)
+                    draft.summary['journey']=revised['journey']
                 journey=draft.summary.get('journey')
                 draft.summary=dict(answer,selections=selections,reviewed=True)
                 if journey: draft.summary['journey']=journey
@@ -432,7 +463,10 @@ def assistant(request,draft_id):
                         selections={}
                         draft.summary['selections']={}
                         invalidate_options(draft.messages)
-                        concierge.reset_options(draft.summary)
+                        revised=dict(draft.summary,**answer['trip'])
+                        revised['journey']=deepcopy(draft.summary.get('journey',{}))
+                        concierge.reset_options(revised,draft.summary)
+                        draft.summary['journey']=revised['journey']
                     draft.summary.update(answer['trip'])
                     concierge.reconcile_ai_trip(draft.summary)
                 draft.messages.append(answer)

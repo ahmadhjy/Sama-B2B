@@ -10,7 +10,7 @@
 <div class="concierge-welcome"><span class="concierge-spark">✦</span><div><strong>Travel, made simple.</strong><p>Tell me what you need. I’ll help you build the request.</p></div></div>
 {% for message in chat %}<div class="chat-message {% if message.role == 'user' %}outgoing{% else %}ai{% endif %}{% if message.guided %} guided-answer{% endif %}"><div class="message-label">{% if message.role == 'user' %}You{% else %}HelloSama assistant{% endif %}</div><div class="message-body">{{ message.content|linebreaksbr }}</div>{% include 'portal/travel_options.html' with groups=message.option_groups %}{% if message.sources %}<details class="concierge-sources"><summary>Sources</summary>{% for source in message.sources %}<a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% endfor %}</details>{% endif %}</div>{% endfor %}
 {% if batch_forms %}{% include 'portal/chat_batch_review.html' %}{% endif %}
-<section class="guide-card" id="guide-card" aria-labelledby="guide-question"><span class="eyebrow" id="guide-step-label">LET’S START</span><h3 id="guide-question" tabindex="-1">{{ guide.question }}</h3><p id="guide-description"></p><form id="guide-form"><div id="guide-controls"></div><p id="guide-error" class="guide-error" role="alert"></p><div class="guide-actions" id="guide-actions"></div></form></section>
+<section class="guide-card" id="guide-card" aria-labelledby="guide-question"><div class="assistant-prompt"><span class="message-label" id="guide-step-label">HelloSama assistant</span><h3 id="guide-question" tabindex="-1">{{ guide.question }}</h3><p id="guide-description"></p></div><form id="guide-form" class="chat-replies" aria-label="Reply to your assistant"><div id="guide-controls"></div><p id="guide-error" class="guide-error" role="alert"></p><div class="guide-actions" id="guide-actions"></div></form></section>
 </div>
 <div id="assistant-error" class="concierge-notice" role="status"></div>
 <form id="assistant-form" class="chat-composer concierge-composer">{% csrf_token %}<label class="sr-only" for="chat-input">Tell your assistant</label><textarea id="chat-input" rows="1" maxlength="3000" placeholder="Or tell me in your own words…" {% if not assistant_available %}disabled{% endif %}></textarea><button class="button primary" type="submit" aria-label="Send message" {% if not assistant_available %}disabled{% endif %}>↑</button></form>
@@ -25,5 +25,6 @@
 <noscript><div class="alert">Enable JavaScript to use the guided chat. Your saved drafts remain available.</div></noscript>
 </div>
 {{ selections|json_script:'chat-selections' }}{{ draft.summary|json_script:'draft-trip' }}{{ guide_values|json_script:'guide-values' }}{{ guide|json_script:'guide-state' }}{{ provider_countries|json_script:'provider-countries' }}{{ provider_available|json_script:'provider-available' }}
-<script defer src="{% static 'concierge.js' %}?v=20261024b"></script>
+{{ insurance_test|json_script:'insurance-test' }}
+<script defer src="{% static 'concierge.js' %}?v=20261024c"></script>
 {% endblock %}

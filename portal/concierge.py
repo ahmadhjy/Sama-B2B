@@ -21,6 +21,21 @@ QUESTIONS = {
     'notes': 'Anything else you would like Sama to know?',
     'ready': 'Your request is ready to review.',
 }
+CONTEXT_QUESTIONS = {'city': 'Which city would you like to stay in?',
+    'country': 'Which country is your destination in?',
+    'nationality': 'What is the lead traveller’s nationality?',
+    'residence': 'Which country do the travellers live in?'}
+
+
+def context(summary):
+    shared=dict(summary.get('journey',{}).get('context',{}))
+    # Also reuse information collected by earlier versions of the chat.
+    for kind,detail in summary.get('journey',{}).get('details',{}).items():
+        if detail.get('manual'): continue
+        for key in ('country','nationality','residence','city_id','city_name'):
+            if key in ('city_id','city_name') and shared.get('country')!=detail.get('country'): continue
+            if detail.get(key): shared.setdefault(key,detail[key])
+    return shared
 
 
 def party_label(party):
@@ -76,6 +91,8 @@ def values(summary):
             rooms='; '.join(f"Room {i+1}: {r['adults']} adults, children’s ages {', '.join(map(str,r['childrenAges'])) or 'none'}" for i,r in enumerate(detail['rooms']))
             lines.append('Hotel: '+detail['city_name']+'. '+rooms+'. '+detail['preferences'])
         elif kind=='transfer': lines.append('Transfer: '+detail['note'])
+        elif kind=='esim': lines.append('eSIM destination: '+detail['country'])
+        elif kind=='insurance': lines.append('Insurance destination: '+detail['country']+'. Country of residence: '+detail['residence'])
     if journey.get('note'): lines.append('Note for Sama: '+journey['note'])
     if lines: result['requirements']='\n'.join(dict.fromkeys(line for line in [*str(result['requirements'] or '').strip().splitlines(),*lines] if line))
     result['traveller_details']=''
@@ -103,15 +120,22 @@ def state(summary):
     return {'step':stage,'question':QUESTIONS.get(stage,'Choose an option, or let Sama find it for you.'),
         'services':services,'completed':journey.get('completed',[]),'details':journey.get('details',{}),
         'passengers':journey.get('passengers',{}),'one_way':journey.get('one_way',False),
-        'note':journey.get('note',''),'version':journey.get('version',0),
+        'note':journey.get('note',''),'context':context(summary),'version':journey.get('version',0),
         'can_one_way':not any(k in services for k in ('hotel','insurance'))}
 
 
-def reset_options(summary):
+def reset_options(summary,previous=None):
     journey=summary.get('journey')
     if journey:
-        journey['completed']=[]
-        journey['details']={k:v for k,v in journey.get('details',{}).items() if k in ('flight','transfer') and not v.get('manual')}
+        shared=context(summary)
+        destination_changed=previous is None or previous.get('destination')!=summary.get('destination')
+        party_changed=previous is None or str(previous.get('travellers'))!=str(summary.get('travellers')) or previous.get('journey',{}).get('passengers')!=journey.get('passengers')
+        if destination_changed:
+            for key in ('country','city_id','city_name'): shared.pop(key,None)
+        journey['context']=shared
+        journey['details']={k:v for k,v in journey.get('details',{}).items()
+            if k in ('flight','transfer') or (not destination_changed and (k!='hotel' or not party_changed or v.get('manual')))}
+        journey['completed']=[k for k in journey.get('completed',[]) if k in journey['details'] and (k=='transfer' or journey['details'][k].get('manual'))]
         journey['version']=journey.get('version',0)+1
 
 
@@ -182,6 +206,23 @@ def answer(summary,step,data):
         details['flight']={'cabin':cabin,'airline':text(data.get('airline',''),120,False)}
         completed[:]=[k for k in completed if k!='flight']
         label=cabin+' · '+(details['flight']['airline'] or 'Any airline')
+    elif step=='context':
+        import pycountry
+        key=data.get('field')
+        shared=journey.setdefault('context',context(result))
+        if key=='city':
+            code=text(data.get('country'),2)
+            nation=pycountry.countries.get(alpha_2=code)
+            if not nation: raise ValidationError('Choose a destination from the suggestions.')
+            shared.update(country=code,city_id=text(str(data.get('city_id','')),30),city_name=text(data.get('city_name')))
+            label=shared['city_name']+', '+nation.name
+        elif key in ('country','nationality','residence'):
+            code=text(data.get(key),2);nation=pycountry.countries.get(alpha_2=code)
+            if not nation: raise ValidationError('Choose a country from the list.')
+            if key=='country' and shared.get('country')!=code:
+                shared.pop('city_id',None);shared.pop('city_name',None)
+            shared[key]=code;label=nation.name
+        else: raise ValidationError('This question is not available.')
     elif step in ('hotel','esim','insurance'):
         import pycountry
         country=text(data.get('country'),2)
@@ -206,6 +247,9 @@ def answer(summary,step,data):
             detail['residence']=text(data.get('residence'),2)
             if not pycountry.countries.get(alpha_2=detail['residence']): raise ValidationError('Choose your country of residence.')
         details[step]=detail;completed[:]=[k for k in completed if k!=step]
+        shared=journey.setdefault('context',{})
+        for key in ('country','nationality','residence','city_id','city_name'):
+            if detail.get(key): shared[key]=detail[key]
         label=SERVICES[step]+': '+(detail.get('city_name') or pycountry.countries.get(alpha_2=country).name)
     elif step=='transfer':
         details['transfer']={'note':text(data.get('note','Sama to confirm pickup and drop-off.'),1000)}

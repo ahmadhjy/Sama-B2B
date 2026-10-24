@@ -1,6 +1,7 @@
 """Read-only provider catalogues. No reservation, contract or purchase endpoints exist here."""
 import hashlib
 import json
+import unicodedata
 from html import unescape
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -25,6 +26,10 @@ def countries():
 def available():
     return {kind:bool(getattr(settings,prefix+'_USERNAME') and getattr(settings,prefix+'_PASSWORD'))
             for kind,prefix in [('hotel','IRIX'),('esim','MONTY_ESIM'),('insurance','SWAN_IMS')]}
+
+
+def insurance_is_test():
+    return settings.SWAN_IMS_SANDBOX or 'staging.' in settings.SWAN_IMS_API_BASE_URL.lower()
 
 
 def fingerprint(trip):
@@ -97,10 +102,35 @@ def mapping(resource, **params):
     return (result.get('_embedded') or {}).get(resource,[])
 
 
-def hotel_cities(name, country):
-    parents=mapping('countries',iso=country)
-    if not parents: return []
-    return [{'id':r['id'],'name':unescape(r['name'])} for r in mapping('cities',countryId=parents[0]['id'],name=name)][:100]
+def hotel_cities(name, country=''):
+    """Resolve an existing destination before asking for more location details.
+
+    The supplier's name filter is a substring search: Cormeilles-en-Parisis is
+    not Paris. Only an exact, unambiguous match may be reused automatically.
+    """
+    def normalized(value):
+        return ''.join(c for c in unicodedata.normalize('NFKD',unescape(value)).casefold() if not unicodedata.combining(c)).strip()
+    parents=mapping('countries',iso=country) if country else []
+    if country and not parents: return []
+    rows=mapping('cities',name=name,**({'countryId':parents[0]['id']} if parents else {}))
+    rows=sorted(rows,key=lambda r:(normalized(r['name'])!=normalized(name),normalized(r['name'])))[:12]
+    result=[];resolved={str(r['id']):r for r in parents}
+    for row in rows:
+        parent_id=str(row.get('countryId') or (parents[0]['id'] if parents else ''))
+        if not parent_id.isdigit(): continue
+        if parent_id not in resolved:
+            key='portal-country:'+hashlib.sha256((settings.IRIX_USERNAME+settings.IRIX_API_BASE_URL+parent_id).encode()).hexdigest()
+            parent=cache.get(key)
+            if parent is None:
+                parent=call('irix','GET','/api/mapping/v1/countries/'+parent_id)
+                cache.set(key,parent,3600)
+            resolved[parent_id]=parent
+        parent=resolved[parent_id];iso=str(parent.get('iso') or country).upper()
+        nation=pycountry.countries.get(**({'alpha_2':iso} if len(iso)==2 else {'alpha_3':iso}))
+        if not nation: continue
+        result.append({'id':row['id'],'name':unescape(row['name']),'country':nation.alpha_2,
+            'country_name':nation.name,'exact':normalized(row['name'])==normalized(name)})
+    return result
 
 
 def amount(value):
@@ -189,7 +219,7 @@ def insurance(country,residence,start,end,births):
             row=option('insurance',plan.get('print_name') or plan.get('name') or 'Travel insurance',
                 f"{start} to {end} · {len(births)} travellers · {deductible} · Policy conditions apply.",
                 total,plan.get('currency_code'),{'plan_id':plan.get('id'),'price_ids':[p['id'] for p in prices],'deductible':tier},
-                sandbox=settings.SWAN_IMS_SANDBOX or 'staging.' in settings.SWAN_IMS_API_BASE_URL)
+                sandbox=insurance_is_test())
             if row: rows.append(row)
     return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
 

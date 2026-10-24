@@ -17,6 +17,26 @@ from . import test_chat_workspace as workspace
 class ProviderParsingTests(SimpleTestCase):
     def setUp(self): cache.clear()
 
+    @patch('portal.providers.mapping')
+    @patch('portal.providers.call')
+    def test_city_suggestions_return_country_and_prioritize_exact_names(self,call,mapping):
+        mapping.return_value=[{'id':8,'countryId':2,'name':'CORMEILLES-EN-PARISIS'},
+            {'id':34,'countryId':2,'name':'PARIS'},{'id':35,'countryId':3,'name':'Paris'}]
+        call.side_effect=[{'id':2,'iso':'FR'},{'id':3,'iso':'USA'}]
+        rows=providers.hotel_cities('Paris')
+        self.assertEqual([r['id'] for r in rows],[34,35,8])
+        self.assertEqual([r['country'] for r in rows],['FR','US','FR'])
+        self.assertTrue(rows[0]['exact']);self.assertTrue(rows[1]['exact']);self.assertFalse(rows[2]['exact'])
+        self.assertEqual(call.call_count,2)
+        mapping.assert_called_once_with('cities',name='Paris')
+
+    @patch('portal.providers.mapping')
+    def test_city_country_filter_and_partial_match_are_not_exact(self,mapping):
+        mapping.side_effect=[[{'id':2,'iso':'FR'}],[{'id':8,'countryId':2,'name':'CORMEILLES-EN-PARISIS'}]]
+        rows=providers.hotel_cities('Paris','FR')
+        self.assertFalse(rows[0]['exact']);self.assertEqual(rows[0]['country'],'FR')
+        self.assertEqual(mapping.call_args.kwargs,{'countryId':2,'name':'Paris'})
+
     @override_settings(MONTY_ESIM_CURRENCY='USD')
     @patch('portal.providers.call')
     def test_esim_uses_provider_price_and_does_not_purchase(self,call):

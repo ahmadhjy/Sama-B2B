@@ -125,11 +125,23 @@
 .concierge-page .option-choice input{margin-top:4px}
 .concierge-sources summary{cursor:pointer;color:#63809b;font-size:11px}
 .concierge-sources a{display:block;font-size:11px;overflow-wrap:anywhere;margin-top:5px}
-.guide-card{background:#f8fbfe;border:1px solid #dce8f3;border-radius:15px;padding:27px;flex-shrink:0;width:100%;max-width:730px;align-self:flex-start;scroll-margin-top:15px}
+.guide-card{background:none;border:0;padding:0;flex-shrink:0;width:100%;max-width:680px;align-self:flex-start;scroll-margin-top:15px}
 .guide-card:has(.option-group){max-width:100%}
 .guide-card .eyebrow{font-size:9px;letter-spacing:1.4px;margin-bottom:9px;color:#738fa8}
-.guide-card h3{font-size:23px;letter-spacing:-.6px;margin-bottom:9px;font-weight:650}
-#guide-description{font-size:13px;color:#71869b;margin-bottom:19px}
+.guide-card h3{font-size:16px;letter-spacing:0;margin:0;font-weight:600;line-height:1.5}
+.assistant-prompt{padding:13px 17px;background:#f1f6fb;border:1px solid #e5edf5;border-radius:3px 14px 14px 14px;max-width:fit-content}
+.assistant-prompt .message-label{display:block;color:#6a8196}
+#guide-description{font-size:12px;color:#637e94;margin:6px 0 0;line-height:1.6}
+.chat-replies{margin:12px 0 0 14px;padding:0 0 0 14px;border-left:2px solid #e3ebf3;max-width:580px}
+.chat-replies .guide-field:first-child{margin-top:0}
+.chat-replies .service-grid{margin-top:0}
+.city-suggestions{display:flex;flex-wrap:wrap;gap:8px}
+.button.reply-chip{border:1px solid #bfd4e5;border-radius:18px;background:#f6fbff;color:#214e70;padding:8px 14px;font-size:13px;min-height:40px;white-space:normal;text-align:left}
+.city-status{font-size:12px;color:#637e94;margin:8px 0 12px}
+.room-allocation{font-size:13px;margin:16px 0;color:#426c8c}
+.room-allocation summary{cursor:pointer;line-height:1.6}
+.concierge-page .chat-message.ai.guided-answer{background:#f1f6fb;border:1px solid #e5edf5;align-self:flex-start;border-radius:3px 14px 14px 14px;max-width:85%}
+.concierge-page .message-body{white-space:pre-line}
 #guide-description:empty{display:none}
 .guide-field{margin:17px 0}
 .guide-field>label{display:block;font-size:13px;color:#526d83;font-weight:550;margin-bottom:7px}
@@ -219,7 +231,7 @@
  .concierge-heading{padding:18px 17px}.concierge-heading h2{font-size:15px}.concierge-heading small{font-size:10px}.concierge-heading>.text-button{font-size:10px}
  .concierge-progress{padding:13px 17px;gap:13px;justify-content:space-between}.concierge-progress li{font-size:10px;gap:6px}.concierge-progress li span{width:19px;height:19px;font-size:9px}
  .trip-memory{padding:10px 16px 0}.concierge-page .concierge-messages{padding:19px 15px;height:clamp(440px,62vh,650px);gap:14px}
- .guide-card{padding:20px 17px;border-radius:12px}.guide-card h3{font-size:21px}.guide-card .eyebrow{font-size:8px}
+ .guide-card{padding:0}.guide-card h3{font-size:15px}.guide-card .eyebrow{font-size:8px}.chat-replies{margin-left:7px;padding-left:10px}.assistant-prompt{padding:12px 14px}
  .service-grid{grid-template-columns:1fr 1fr;gap:9px}.service-choice{padding:15px 12px;min-height:119px}.service-choice small{font-size:10px}.service-choice strong{font-size:13px}.service-icon{font-size:22px;width:30px;height:30px}
  .guide-actions{gap:6px}.guide-actions>.button.primary{width:100%}.guide-actions>.button.text{margin-left:0;font-size:11px;white-space:normal;text-align:left}
  .concierge-composer{padding:13px 15px 7px!important}.concierge-composer textarea{font-size:16px}.concierge-notice{padding:0 16px;font-size:11px}

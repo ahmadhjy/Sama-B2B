@@ -92,6 +92,72 @@ class ConciergeTests(TestCase):
         response=self.step(draft,'route',{'origin':'Beirut','destination':'Rome'})
         self.assertEqual(response.json()['selections'],{});self.assertNotIn('hotel',response.json()['guide']['details'])
 
+    def test_shared_destination_is_saved_once_and_survives_manual_hotel_help(self):
+        draft=self.basics()
+        response=self.step(draft,'context',{'field':'city','country':'FR','city_id':'34','city_name':'Paris'},automatic=True)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['guide']['context']['country'],'FR')
+        self.assertEqual(response.json()['messages'][0]['role'],'assistant')
+        self.step(draft,'context',{'field':'nationality','nationality':'LB'})
+        self.step(draft,'skip_service',{'service':'hotel'})
+        draft.refresh_from_db()
+        self.assertEqual(concierge.state(draft.summary)['context']['city_name'],'Paris')
+        self.assertEqual(concierge.state(draft.summary)['context']['nationality'],'LB')
+        response=self.step(draft,'esim',{'country':'FR'},automatic=True)
+        self.assertEqual(response.json()['message']['role'],'assistant')
+
+    def test_date_edits_reuse_details_but_require_new_offers_and_party_edits_reallocate_rooms(self):
+        draft=self.basics()
+        data={'country':'FR','city_id':'34','city_name':'Paris','nationality':'LB','rooms':[{'adults':2,'childrenAges':[5,0]}]}
+        self.step(draft,'hotel',data)
+        self.step(draft,'transfer',{'note':'Airport to hotel'})
+        self.step(draft,'insurance',{'country':'FR','residence':'LB'})
+        draft.refresh_from_db();draft.summary['selections']={'hotel':{'id':'0:0'}}
+        draft.summary['journey']['completed']+=['hotel','insurance'];draft.save()
+        response=self.step(draft,'return',{'nights':7}).json()
+        self.assertEqual(response['selections'],{})
+        self.assertEqual(response['guide']['details']['hotel']['rooms'],data['rooms'])
+        self.assertEqual(response['guide']['context']['residence'],'LB')
+        self.assertIn('transfer',response['guide']['completed'])
+        self.assertNotIn('hotel',response['guide']['completed'])
+        # Same total, different age groups: the old room occupancy is no longer valid.
+        response=self.step(draft,'travellers',{'adults':3,'children':0,'infants':1}).json()
+        self.assertNotIn('hotel',response['guide']['details'])
+        self.assertEqual(response['guide']['context']['city_id'],'34')
+        response=self.step(draft,'route',{'origin':'Beirut','destination':'Rome'}).json()
+        self.assertNotIn('country',response['guide']['context'])
+        self.assertNotIn('city_id',response['guide']['context'])
+        self.assertEqual(response['guide']['context']['nationality'],'LB')
+
+    def test_questions_and_answers_remain_in_chat_and_test_insurance_is_identified(self):
+        draft=self.basics(('insurance',))
+        draft.refresh_from_db()
+        self.assertEqual(draft.messages[0]['role'],'assistant')
+        self.assertEqual(draft.messages[0]['content'],concierge.QUESTIONS['services'])
+        self.assertEqual(draft.messages[1]['role'],'user')
+        with override_settings(SWAN_IMS_SANDBOX=False,SWAN_IMS_API_BASE_URL='https://staging.cygnet-ims.com'):
+            response=self.client.get(reverse('new_request')+'?draft='+str(draft.pk))
+        self.assertTrue(response.context['insurance_test'])
+
+    def test_shared_context_edits_expire_affected_quotes_without_recollecting_occupancy(self):
+        draft=self.basics()
+        data={'country':'FR','city_id':'34','city_name':'Paris','nationality':'LB','rooms':[{'adults':2,'childrenAges':[5,0]}]}
+        self.step(draft,'hotel',data)
+        draft.refresh_from_db();draft.summary['selections']={'hotel':{'id':'0:0'},'flight':{'id':'0:1'}}
+        draft.summary['journey']['completed']=['hotel','flight']
+        draft.messages.append({'role':'assistant','content':'Options','options':[{'kind':'hotel'},{'kind':'flight'}]});draft.save()
+        response=self.step(draft,'context',{'field':'nationality','nationality':'FR'}).json()
+        self.assertNotIn('hotel',response['selections']);self.assertIn('flight',response['selections'])
+        self.assertEqual(response['guide']['details']['hotel']['rooms'],data['rooms'])
+        self.assertEqual(response['guide']['details']['hotel']['nationality'],'FR')
+        self.assertNotIn('hotel',response['guide']['completed'])
+        draft.refresh_from_db();self.assertTrue(draft.messages[-3]['options'][0]['expired'])
+        self.assertNotIn('expired',draft.messages[-3]['options'][1])
+        response=self.step(draft,'context',{'field':'country','country':'IT'}).json()
+        self.assertNotIn('hotel',response['guide']['details'])
+        self.assertNotIn('city_id',response['guide']['context'])
+        self.assertEqual(response['guide']['context']['country'],'IT')
+
     def test_ajax_validation_failure_does_not_claim_submission(self):
         self.signin(self.requester);draft=Draft.objects.create(user=self.requester)
         response=self.client.post(reverse('new_request'),{'draft_id':str(draft.pk)},HTTP_X_REQUESTED_WITH='XMLHttpRequest')

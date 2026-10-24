@@ -53,6 +53,14 @@ class PlannerTests(TestCase):
         self.assertEqual(self.client.post(url,data=json.dumps({'message':'More'}),content_type='application/json').status_code,400)
         self.assertEqual(self.client.post(url,data=json.dumps({'action':'summary'}),content_type='application/json').status_code,200)
 
+    @patch('portal.views.generate')
+    def test_saved_guide_questions_do_not_exhaust_chat_allowance(self, generate_mock):
+        self.signin(self.requester)
+        draft=Draft.objects.create(user=self.requester,messages=[{'role':'assistant','content':'Saved question','guided':True}]*80)
+        generate_mock.return_value={'role':'assistant','content':'What would you like to change?','options':[],'sources':[]}
+        response=self.client.post(reverse('assistant',args=[draft.pk]),data=json.dumps({'message':'Change my trip'}),content_type='application/json')
+        self.assertEqual(response.status_code,200);generate_mock.assert_called_once()
+
     @patch('portal.ai.requests.post')
     def test_summary_retains_early_details_and_does_not_search(self, post):
         post.return_value=Mock(raise_for_status=lambda:None,json=lambda:{'status':'completed',
