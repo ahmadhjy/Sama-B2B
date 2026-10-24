@@ -2,10 +2,12 @@
 import hashlib
 import json
 import unicodedata
+import re
+from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import pycountry
 import requests
@@ -13,6 +15,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.html import strip_tags
 
 
 class ProviderUnavailable(Exception):
@@ -48,7 +51,7 @@ def request(method, url, **kwargs):
     if urlparse(url).scheme != 'https':
         raise ProviderUnavailable('The provider requires a secure connection.')
     try:
-        response=requests.request(method,url,timeout=(5,30),allow_redirects=False,**kwargs)
+        response=requests.request(method,url,timeout=kwargs.pop('timeout',(5,30)),allow_redirects=False,**kwargs)
         response.raise_for_status()
         if response.status_code != 200: raise ValueError()
         data=response.json()
@@ -229,6 +232,7 @@ def hotels(city_id,nationality,start,end,rooms):
     if not nationalities: raise ProviderUnavailable('The hotel provider does not recognise this nationality.')
     properties=mapping('hotels',cityId=city_id)
     if not properties: return []
+    property_map={str(p['id']):p for p in properties}
     data=call('irix','POST','/api/hotels/v1/search/sync',json={
         'accommodation':[p['id'] for p in properties[:100]],'checkIn':str(start),'checkOut':str(end),
         'occupancy':{'leaderNationality':nationalities[0]['id'],'rooms':rooms},
@@ -237,26 +241,75 @@ def hotels(city_id,nationality,start,end,rooms):
     for hotel in data.get('hotels') or []:
         hotel_rows=[]
         for offer in hotel.get('offers') or []:
-            room_map={str(r.get('roomCode')):r for r in offer.get('rooms') or []}
+            room_map={str(r.get('index',r.get('roomCode'))):r for r in offer.get('rooms') or []}
             for package in offer.get('packages') or []:
                 if package.get('complete') is not True: continue
                 price=(package.get('price') or {}).get('selling') or {}
                 selected=[]
                 for room in package.get('packageRooms') or []:
                     selected += [str(r.get('roomCode')) for r in room.get('roomReferences') or [] if r.get('selected') is True]
-                descriptions=[]
+                descriptions=[];room_details=[];attributes=[]
                 for code in selected:
                     r=room_map.get(code,{})
                     name=r.get('name') or r.get('description')
                     if isinstance(name,str):
                         meal={'RO':'Room only','BB':'Breakfast','HB':'Half board','FB':'Full board','AI':'All inclusive','SC':'Self catering'}.get(r.get('boardBasis'),'Meals to confirm')
                         cancellation='Non-refundable' if r.get('nonRefundable') is True else 'Cancellation conditions apply'
-                        descriptions.append(unescape(name)[:160]+' · '+meal+' · '+cancellation)
+                        name=plain(name,160)
+                        descriptions.append(name+' · '+meal+' · '+cancellation)
+                        attributes.extend([{'label':'Room','value':name},{'label':'Meals','value':meal},
+                            {'label':'Cancellation','value':cancellation}])
+                        info=r.get('info') if isinstance(r.get('info'),dict) else {}
+                        room_details.append(room_information(dict(info,index=code),name))
+                prop=property_map.get(str(hotel.get('index')),{})
+                stars=hotel.get('stars') if hotel.get('stars') is not None else prop.get('stars')
+                if type(stars) is not int or not 1<=stars<=5: stars=None
+                address=plain(prop.get('address'),240)
+                if address: attributes.append({'label':'Location','value':address})
                 detail=f"{start} to {end} · {len(rooms)} room(s) · "+(' / '.join(descriptions) or 'Room package')+'. Sama confirms final terms.'
                 row=option('hotel',unescape(hotel.get('name') or 'Hotel'),detail,
                     price.get('value'),price.get('currency'),{'hotel_index':hotel.get('index'),
                     'offer_id':offer.get('id'),'package_code':package.get('packageCode'),
-                    'room_codes':selected,'srk':data.get('srk')},stars=hotel.get('stars'))
+                    'room_codes':selected,'srk':data.get('srk')},stars=stars,
+                    attributes=[dict(label=key,value=value) for key,value in dict.fromkeys((a['label'],a['value']) for a in attributes)],room_details=room_details)
                 if row: hotel_rows.append(row)
         rows.extend(sorted(hotel_rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:2])
-    return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
+    rows=sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
+    # Fetch descriptions only for the options we actually show. The results
+    # token stays in memory and never enters saved offers or browser responses.
+    token=(data.get('tokens') or {}).get('results');srk=data.get('srk')
+    if token and isinstance(srk,str) and re.fullmatch(r'[A-Za-z0-9-]+',srk):
+        groups={}
+        for row in rows:
+            ref=row['provider_reference'];key=(str(ref['hotel_index']),str(ref['offer_id']))
+            groups.setdefault(key,set()).update(ref['room_codes'])
+        def load(item):
+            (hotel_id,offer_id),codes=item
+            try:
+                response=call('irix','GET',f'/api/hotels/v1/search/results/{srk}/hotels/{quote(hotel_id,safe="")}/offers/{quote(offer_id,safe="")}/rooms',
+                    params={'token':token,'roomIndexes':','.join(sorted(codes))},timeout=(3,8))
+                return (hotel_id,offer_id),{str(r.get('index')):r for r in response.get('rooms') or []}
+            except (ProviderUnavailable,ValueError,TypeError,KeyError,AttributeError): return (hotel_id,offer_id),{}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            extra=dict(pool.map(load,groups.items()))
+        for row in rows:
+            ref=row['provider_reference'];found=extra.get((str(ref['hotel_index']),str(ref['offer_id'])),{})
+            row['room_details']=[room_information(found.get(r['index'],{}),r['name'],fallback=r) for r in row['room_details']]
+    return rows
+
+
+def plain(value,limit=1500):
+    if not isinstance(value,str): return ''
+    value=re.sub(r'<(?:br\s*/?|/p|/div|/li)>','\n',value[:12000],flags=re.I)
+    return unescape(strip_tags(value)).strip()[:limit]
+
+
+def room_information(data,name,fallback=None):
+    fallback=fallback or {}
+    description=plain(data.get('description')) or fallback.get('description','')
+    facilities=plain(data.get('facilitiesDescription'),1000) or fallback.get('facilities','')
+    size=re.search(r'\b(\d+(?:[.,]\d+)?)\s*(m²|m2|sqm|sq\.?\s*m(?:eters)?|square\s+met(?:er|re)s?|ft²|sq\.?\s*ft|square\s+feet)\b',description+' '+facilities,re.I)
+    labelled_size=re.search(r'(?:room\s+size|room\s+area|floor\s+area)\s*\(\s*(sqm|m²|m2|square\s+met(?:er|re)s?|sq\.?\s*ft|ft²|square\s+feet)\s*\)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)',description+' '+facilities,re.I)
+    size_text=size.group(0) if size else (labelled_size.group(2)+' '+('ft²' if re.search(r'ft|feet',labelled_size.group(1),re.I) else 'm²')) if labelled_size else fallback.get('size','')
+    return {'index':str(data.get('index') or fallback.get('index','')),'name':name,'description':description,
+        'facilities':facilities,'size':size_text}

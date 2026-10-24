@@ -43,6 +43,19 @@ def party_label(party):
         [('adults','adult','adults'),('children','child','children'),('infants','infant','infants')])
 
 
+def return_answer(content,*,at_return=False):
+    """Handle explicit date replies without asking a model to update UI state."""
+    reply=re.sub(r"[’']",'',content.strip().lower())
+    reply=re.sub(r'[.!?]+$','',reply).strip()
+    if re.fullmatch(r'(?:a |its |it is )?one[ -]way(?: flight| trip| ticket)?(?: only)?|no return flight(?: needed)?',reply):
+        return {'one_way':True,'return_pending':True}
+    if reply in ('no return date','no return date yet','no return date for now','no return','return date undecided',
+            'return undecided','i dont know the return date yet','i havent decided the return date yet') or (
+            at_return and reply in ('undecided','not decided yet','not sure yet','tbd','i dont know','i dont know yet')):
+        return {'return_pending':True}
+    return None
+
+
 def reconcile_ai_trip(summary):
     journey=summary.get('journey')
     if not journey: return
@@ -71,6 +84,9 @@ def values(summary):
     result={key:summary.get(key,'') for key in ('title','service_type','origin','destination',
         'departure','return_date','travellers','budget','requirements')}
     journey=summary.get('journey',{})
+    date_notes=('One-way travel; no return requested.',
+        'Return/end date undecided; Sama to confirm any hotel stay and insurance dates before quoting.')
+    result['requirements']='\n'.join(line for line in str(result['requirements'] or '').splitlines() if line not in date_notes)
     services=journey.get('services',[])
     if services: result['service_type']=service_type(services)
     if not result['title'] and result['destination']:
@@ -81,6 +97,8 @@ def values(summary):
     if party:
         lines.append('Travellers: '+party_label(party)+'.')
     if journey.get('one_way'): lines.append('One-way travel; no return requested.')
+    if journey.get('return_pending') and not result['return_date']:
+        lines.append(date_notes[1])
     for kind, detail in journey.get('details',{}).items():
         if detail.get('manual'):
             lines.append(SERVICES[kind]+': Sama to arrange based on the trip details.')
@@ -110,7 +128,7 @@ def state(summary):
     if services:
         if not summary.get('origin') or not summary.get('destination'): stage='route'
         elif not start or start<timezone.localdate(): stage='departure'
-        elif (not end or end<start or ('hotel' in services and end==start)) and not journey.get('one_way'): stage='return'
+        elif (not end or end<start or ('hotel' in services and end==start)) and not (journey.get('one_way') or journey.get('return_pending')): stage='return'
         elif not journey.get('passengers') or str(sum(journey['passengers'].values()))!=str(summary.get('travellers')): stage='travellers'
         else:
             stage='notes' if not journey.get('notes_done') else 'ready'
@@ -119,7 +137,7 @@ def state(summary):
                 if kind not in journey.get('completed',[]): stage=kind if kind=='transfer' else kind+'_options';break
     return {'step':stage,'question':QUESTIONS.get(stage,'Choose an option, or let Sama find it for you.'),
         'services':services,'completed':journey.get('completed',[]),'details':journey.get('details',{}),
-        'passengers':journey.get('passengers',{}),'one_way':journey.get('one_way',False),
+        'passengers':journey.get('passengers',{}),'one_way':journey.get('one_way',False),'return_pending':journey.get('return_pending',False),
         'note':journey.get('note',''),'context':context(summary),'version':journey.get('version',0),
         'can_one_way':not any(k in services for k in ('hotel','insurance'))}
 
@@ -135,6 +153,8 @@ def reset_options(summary,previous=None):
         journey['context']=shared
         journey['details']={k:v for k,v in journey.get('details',{}).items()
             if k in ('flight','transfer') or (not destination_changed and (k!='hotel' or not party_changed or v.get('manual')))}
+        if summary.get('return_date'):
+            journey['details']={k:v for k,v in journey['details'].items() if not v.get('dates_pending')}
         journey['completed']=[k for k in journey.get('completed',[]) if k in journey['details'] and (k=='transfer' or journey['details'][k].get('manual'))]
         journey['version']=journey.get('version',0)+1
 
@@ -185,10 +205,16 @@ def answer(summary,step,data):
     elif step=='return':
         if not result.get('departure'): raise ValidationError('Choose your departure date first.')
         one_way=data.get('one_way') is True
-        if one_way and any(k in journey.get('services',[]) for k in ('hotel','insurance')):
+        pending=data.get('return_pending') is True
+        if one_way and not any(k in journey.get('services',[]) for k in ('hotel','insurance')): pending=False
+        if one_way and not pending and any(k in journey.get('services',[]) for k in ('hotel','insurance')):
             raise ValidationError('We need an end date for the hotel or insurance.')
         journey['one_way']=one_way
-        if one_way: result['return_date']='';label='One-way trip'
+        journey['return_pending']=pending
+        if pending:
+            result['return_date']=''
+            label='One-way flight; stay/cover dates to confirm.' if one_way else 'Return date undecided; Sama to confirm.'
+        elif one_way: result['return_date']='';label='One-way trip'
         else:
             end=day(data.get('return_date')) if data.get('return_date') else date.fromisoformat(result['departure'])+timedelta(days=integer(data.get('nights'),1,365))
             if end<date.fromisoformat(result['departure']): raise ValidationError('The end date cannot be before departure.')
@@ -259,6 +285,8 @@ def answer(summary,step,data):
         kind=data.get('service')
         if kind not in journey.get('services',[]): raise ValidationError('Choose this service first.')
         details[kind]={'manual':True}
+        if kind in ('hotel','insurance') and journey.get('return_pending') and not result.get('return_date'):
+            details[kind]['dates_pending']=True
         result.setdefault('selections',{}).pop(kind,None)
         if kind not in completed: completed.append(kind)
         label=SERVICES[kind]+': Sama will find the best option.'

@@ -6,7 +6,7 @@
   const read=id=>JSON.parse(document.getElementById(id).textContent);
   const names={flight:'Flights',hotel:'Hotel',transfer:'Transfers',esim:'eSIM',insurance:'Travel insurance'};
   const icons={flight:'✈',hotel:'▤',transfer:'↗',esim:'▣',insurance:'♧'};
-  const countries=read('provider-countries'),connections=read('provider-available'),insuranceTest=read('insurance-test');
+  const countries=read('provider-countries'),connections=read('provider-available');
   let trip=read('draft-trip'),values=read('guide-values'),guide=read('guide-state'),selections=read('chat-selections');
   let busy=false,override='',onAnswer=()=>{},quote={},wizard='',wizardKind='',submittedUrl='',reviewShown=false,offerHome=null,renderId=0,textAnswer=null;
   const searched=new Set();
@@ -73,7 +73,7 @@
   function memory(){
     const box=$('#trip-memory');box.replaceChildren();
     const pieces=[['services',guide.services.map(k=>names[k]).join(' + ')],['route',trip.origin&&trip.destination?trip.origin+' → '+trip.destination:''],
-      ['departure',dateLabel(trip.departure)],['return',dateLabel(trip.return_date)|| (guide.one_way?'One way':'')],['travellers',trip.travellers?trip.travellers+' traveller'+(Number(trip.travellers)===1?'':'s'):'']];
+      ['departure',dateLabel(trip.departure)],['return',dateLabel(trip.return_date)|| (guide.one_way?'One way':guide.return_pending?'Return undecided':'')],['travellers',trip.travellers?trip.travellers+' traveller'+(Number(trip.travellers)===1?'':'s'):'']];
     pieces.forEach(([step,text])=>{if(text)box.append(button(text+' · Edit',()=>edit(step),'memory'));});box.hidden=!box.children.length;
     $('#open-request-review').hidden=guide.step!=='ready';
   }
@@ -89,11 +89,17 @@
       const heading=el('div','option-group-heading');heading.append(el('strong','',(icons[kind]||'✦')+' '+(names[kind]||'Travel')+' options'),el('small','','Choose one, or ask Sama to find another option'));group.append(heading);
       choices.forEach(option=>{
         const row=el('article','option-row'),choice=el('label','option-choice'),radio=el('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;
-        if(option.sandbox||option.expired){radio.dataset.stale='true';radio.disabled=true;}
-        const description=el('span','option-description');description.append(el('strong','',option.label+(option.sandbox?' · Test quote':'')),el('span','',option.detail));
+        if(option.expired){radio.dataset.stale='true';radio.disabled=true;}
+        const description=el('span','option-description'),detail=el('span','',option.detail);formatLinks(detail);description.append(el('strong','',option.label+(option.stars?' · '+option.stars+' ★':'')),detail);
+        if(kind==='hotel'&&option.attributes?.length){const facts=el('span','hotel-attributes');option.attributes.forEach(a=>facts.append(el('span','hotel-attribute',a.label+': '+a.value)));description.append(facts);}
         const price=el('span','option-price');price.append(el('strong','',option.price_min?`${option.price_min}${option.price_max!==option.price_min?' – '+option.price_max:''} ${option.currency}`:'Sama to quote'),
           el('small','',option.price_min?({per_unit:'One eSIM',per_person:'Per traveller',per_night:'Per night',total:'Party / stay total'}[option.price_basis]||'Estimate'):''));
         choice.append(radio,description,price);row.append(choice);
+        if(kind==='hotel'){
+          const more=el('details','hotel-room-details');more.append(el('summary','','Room details & amenities'));
+          for(const room of option.room_details||[]){const copy=el('div','hotel-room-copy');copy.append(el('strong','',room.name),el('p','','Room size: '+(room.size||'Not provided by supplier')));if(room.description)copy.append(el('p','',room.description));if(room.facilities)copy.append(el('p','',room.facilities));more.append(copy);}
+          if(!option.room_details?.length)more.append(el('p','','Further room details were not provided by the supplier.'));row.append(more);
+        }
         try{const url=new URL(option.source_url);if(['https:','http:'].includes(url.protocol)){const link=el('a','option-source','Details ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}}catch(_){}
         group.append(row);
       });node.append(group);
@@ -139,6 +145,8 @@
       [['date','Choose a date'],['nights','Number of nights']].forEach(([mode,label])=>{const b=button(label,()=>draw(mode));b.dataset.mode=mode;tabs.append(b);});draw('date');
       next(()=>sendStep(step,mode==='date'?{return_date:dateField.value}:{nights:Number(nights.value)}));
       if(guide.can_one_way)actions.append(button('One-way trip',()=>sendStep(step,{one_way:true}),'text'));
+      actions.append(button('Return date undecided',()=>sendStep(step,{return_pending:true}),'secondary'));
+      $('#guide-description').textContent='Choose a date, tell me the number of nights, or leave it undecided for now.';
     }else if(step==='travellers'){
       $('#guide-question').textContent='Who is travelling?';$('#guide-description').textContent='Include everyone in this request.';
       const party=guide.passengers,fields={};
@@ -178,10 +186,12 @@
     catch(error){setBusy(false);$('#guide-error').textContent=error.message;}
   }
   function afterDestination(kind){return kind==='hotel'?(quote.nationality?'rooms':'nationality'):kind==='insurance'?(quote.residence?'birthdates':'residence'):'search';}
-  function insuranceNotice(){
-    $('#guide-question').textContent='Sama can arrange your travel insurance.';
-    $('#guide-description').textContent='Online insurance is currently in test mode, so those plans cannot be selected. I can include cover in your request for Sama to quote.';
-    actions.append(button('Let Sama arrange cover',()=>sendStep('skip_service',{service:'insurance'}),'primary'));
+  function pendingDates(kind){
+    if(!['hotel','insurance'].includes(kind)||trip.return_date)return false;
+    $('#guide-question').textContent=kind==='hotel'?'I’ll leave your hotel dates open.':'I’ll leave your insurance dates open.';
+    $('#guide-description').textContent='Sama needs the '+(kind==='hotel'?'check-out':'cover end')+' date before checking prices. You can still include this service in your request.';
+    actions.append(button('Let Sama confirm the dates',()=>sendStep('skip_service',{service:kind}),'primary'),button('Add an end date',()=>edit('return'),'text'));
+    return true;
   }
   function renderProvider(kind){
     if(wizardKind!==kind){
@@ -189,7 +199,7 @@
       wizard=quote.country?(kind==='hotel'&&!quote.city_id?'city':afterDestination(kind)):(connections.hotel&&trip.destination?'city':'country');
     }
     $('#guide-step-label').textContent=names[kind].toUpperCase();
-    if(kind==='insurance'&&insuranceTest){insuranceNotice();return;}
+    if(pendingDates(kind))return;
     if(!connections[kind]){
       $('#guide-question').textContent='Sama can arrange your '+names[kind].toLowerCase()+'.';$('#guide-description').textContent='Online offers aren’t connected for this service yet. Include it in your request and Sama will help.';actions.append(button('Include '+names[kind].toLowerCase()+' in my request',()=>sendStep('skip_service',{service:kind}),'primary'));return;
     }
@@ -256,9 +266,10 @@
     }catch(error){setBusy(false);$('#guide-error').textContent=error.message;}
   }
   function renderOffers(kind){
-    if(kind==='insurance'&&insuranceTest){insuranceNotice();return;}
+    if(pendingDates(kind))return;
     $('#guide-step-label').textContent=names[kind].toUpperCase();$('#guide-question').textContent='Choose your '+({flight:'flight',hotel:'hotel',esim:'eSIM',insurance:'travel cover'}[kind])+', or leave it to Sama.';
     $('#guide-description').textContent='Selecting an option adds it to your request.';
+    if(kind==='insurance')$('#guide-description').textContent='Choose a plan preference. Sama confirms final cover and price. Nothing is booked.';
     if(selections[kind])actions.append(button('Continue with my selected option',()=>sendStep('complete_service',{service:kind}),'primary'));
     const choices=[...messages.querySelectorAll(`[name="travel-choice-${kind}"]`)].filter(n=>n.dataset.stale!=='true');
     if(choices.length){const group=choices.at(-1).closest('.option-group');offerHome={group,parent:group.parentElement};controls.append(group);}
@@ -283,7 +294,8 @@
     if(busy)return;
     if(root.dataset.available!=='true'){$('#guide-error').textContent='Online flight research is unavailable. Sama can find options for you.';return;}
     const detail=guide.details.flight||{};
-    await chat(`Show sourced flight timings for ${trip.origin} to ${trip.destination}, departing ${trip.departure}${trip.return_date?', returning '+trip.return_date:', one way'}, for ${trip.travellers} travellers. ${detail.cabin||''}. ${detail.airline?'Preferred airline: '+detail.airline+'.':''} Keep the reply brief.`,false);
+    const returning=guide.one_way?', one way':trip.return_date?', returning '+trip.return_date:', return date undecided; research outbound flights only';
+    await chat(`Show sourced flight timings for ${trip.origin} to ${trip.destination}, departing ${trip.departure}${returning}, for ${trip.travellers} travellers. ${detail.cabin||''}. ${detail.airline?'Preferred airline: '+detail.airline+'.':''} Keep the reply brief.`,false);
   }
   async function chat(content,showUser=true){
     if(busy)return;setBusy(true,'Your assistant is checking…');if(showUser)append({role:'user',content});
@@ -295,20 +307,25 @@
   messages.addEventListener('change',async event=>{
     const radio=event.target.closest('[data-option-id]');if(!radio||busy)return;const kind=radio.name.replace('travel-choice-','');
     if(!guide.services.includes(kind)){$('#guide-error').textContent='Add this service to your trip first.';radio.checked=false;return;}
-    setBusy(true,'Saving your choice…');try{const result=await postJSON(root.dataset.selectUrl,{option_id:radio.value});updateSelections(result);setBusy(false);await sendStep('complete_service',{service:kind});}catch(error){setBusy(false);updateSelections({selections});$('#guide-error').textContent=error.message;}
+    setBusy(true,'Saving your choice…');try{const result=await postJSON(root.dataset.selectUrl,{option_id:radio.value});updateSelections(result);setBusy(false);
+      if(guide.details[kind]&&!guide.details[kind].manual)await sendStep('complete_service',{service:kind});
+      else{append({role:'assistant',content:'Your '+names[kind].toLowerCase()+' preference is saved. Let’s finish the remaining trip details.'});render();scrollCard();}
+    }catch(error){setBusy(false);updateSelections({selections});$('#guide-error').textContent=error.message;}
   });
   function openReview(){
     if(busy||submittedUrl)return;
     if(guide.step!=='ready'){override='';render();scrollCard();return;}
     const facts=$('#review-facts');facts.replaceChildren();
-    [['Route',trip.origin+' → '+trip.destination,'route'],['Travel dates',dateLabel(trip.departure)+(trip.return_date?' → '+dateLabel(trip.return_date):' · One way'),'departure'],
+    [['Route',trip.origin+' → '+trip.destination,'route'],['Travel dates',dateLabel(trip.departure)+(trip.return_date?' → '+dateLabel(trip.return_date):guide.one_way?' · One way':' · Return/end date undecided'),'departure'],
       ['Travellers',partyLabel(guide.passengers),'travellers'],['Services',guide.services.map(k=>names[k]).join(', '),'services']].forEach(([label,value,step])=>{
       const row=el('div','review-fact'),copy=el('div');copy.append(el('small','',label),el('strong','',value));row.append(copy,button('Edit',()=>edit(step),'text'));facts.append(row);
       if(step==='departure')row.append(button('Edit end',()=>edit('return'),'text'));
     });
     const offers=$('#review-options');offers.replaceChildren();guide.services.forEach(kind=>{const option=selections[kind],detail=guide.details[kind]||{},row=el('div','review-option');row.append(icon(kind),el('div'));const body=row.lastElementChild;body.append(el('strong','',names[kind]),el('span','',option?option.label:kind==='transfer'&&detail.note?detail.note:'Sama will find the best option'));
+      if(kind==='insurance'&&option)body.append(el('small','','Sama confirms final cover and price.'));
       if(kind==='flight'&&detail.cabin)body.append(el('small','',detail.cabin+(detail.airline?' · '+detail.airline:'')));
       if(kind==='hotel'&&detail.rooms)body.append(el('small','',detail.rooms.length+' room'+(detail.rooms.length===1?'':'s')+' · '+(detail.preferences||detail.city_name)));
+      if(kind==='hotel'&&option?.stars)body.append(el('small','',option.stars+' ★'+(option.room_details?.filter(r=>r.size).map(r=>' · '+r.size).join('')||'')));
       if(option?.price_min)body.append(el('small','',option.price_min+' '+option.currency+' · '+({per_unit:'one eSIM',per_person:'per traveller',per_night:'per night',total:'party / stay total'}[option.price_basis]||'estimate')));row.append(button('Edit',()=>edit(kind),'text'));offers.append(row);});
     const notes=$('#review-notes');notes.replaceChildren();if(guide.note)notes.append(el('small','','Your note'),el('p','',guide.note));
     Object.entries(values).forEach(([key,value])=>{const field=requestForm.elements.namedItem(key);if(field)field.value=value??'';});
@@ -327,7 +344,7 @@
       root.querySelectorAll('.review-fact button,.review-option button').forEach(b=>b.hidden=true);
     }catch(error){setBusy(false);$('#submit-error').textContent=error.message;}
   });
-  messages.querySelectorAll('.chat-message.ai .message-body').forEach(formatLinks);
+  messages.querySelectorAll('.chat-message.ai .message-body,.option-description>span:not(.hotel-attributes)').forEach(formatLinks);
   render();updateSelections({selections});setBusy(false);
   if($('#batch-review'))$('#batch-review').scrollIntoView();else scrollCard();
 })();

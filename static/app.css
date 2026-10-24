@@ -140,6 +140,12 @@
 .city-status{font-size:12px;color:#637e94;margin:8px 0 12px}
 .room-allocation{font-size:13px;margin:16px 0;color:#426c8c}
 .room-allocation summary{cursor:pointer;line-height:1.6}
+.hotel-attributes{display:flex!important;flex-wrap:wrap;gap:5px;margin-top:9px}
+.hotel-attribute{display:inline-block!important;font-size:11px!important;padding:4px 7px;border:1px solid #dce7f0;border-radius:6px;background:#f5f9fc;color:#315c7c;line-height:1.5}
+.hotel-room-details{margin:10px 0 5px 28px;font-size:12px;color:#426b89;line-height:1.6}
+.hotel-room-details summary{cursor:pointer;font-weight:600}
+.hotel-room-copy{padding:9px 0;border-bottom:1px solid #e5edf3}
+.hotel-room-copy p{font-size:12px;white-space:pre-line;margin:5px 0;overflow-wrap:anywhere}
 .concierge-page .chat-message.ai.guided-answer{background:#f1f6fb;border:1px solid #e5edf5;align-self:flex-start;border-radius:3px 14px 14px 14px;max-width:85%}
 .concierge-page .message-body{white-space:pre-line}
 #guide-description:empty{display:none}

@@ -1,5 +1,6 @@
 """Guided answers are saved and validated independently of the language model."""
 import json
+from unittest.mock import patch
 from datetime import timedelta
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -74,6 +75,59 @@ class ConciergeTests(TestCase):
         self.step(draft,'services',{'services':['flight']})
         response=self.step(draft,'return',{'one_way':True});self.assertEqual(response.status_code,200)
         self.assertEqual(response.json()['trip']['return_date'],'');self.assertTrue(response.json()['guide']['one_way'])
+
+    @patch('portal.views.generate')
+    def test_chat_no_return_date_advances_the_saved_guide_without_ai_or_invented_dates(self,generate):
+        draft=self.basics()
+        draft.refresh_from_db();draft.summary['return_date']='';draft.summary['journey'].pop('passengers')
+        draft.summary['travellers']='';draft.save()
+        self.assertEqual(concierge.state(draft.summary)['step'],'return')
+        response=self.client.post(reverse('assistant',args=[draft.pk]),data=json.dumps({'message':'No return date'}),content_type='application/json')
+        self.assertEqual(response.status_code,200)
+        data=response.json();self.assertEqual(data['guide']['step'],'travellers')
+        self.assertTrue(data['guide']['return_pending']);self.assertFalse(data['guide']['one_way'])
+        self.assertEqual(data['trip']['return_date'],'');self.assertIn('undecided',data['message']['content'])
+        generate.assert_not_called()
+        draft.refresh_from_db();self.assertTrue(draft.summary['journey']['return_pending'])
+        self.assertEqual(concierge.state(draft.summary)['step'],'travellers')
+        self.assertIsNone(concierge.return_answer('I dont know',at_return=False))
+        self.assertEqual(concierge.return_answer('I dont know',at_return=True),{'return_pending':True})
+
+    @patch('portal.views.generate')
+    def test_removing_a_known_return_date_expires_old_round_trip_offers(self,generate):
+        draft=self.basics(('flight',))
+        draft.refresh_from_db();draft.summary['selections']={'flight':{'id':'0:0'}}
+        draft.messages.append({'role':'assistant','content':'Round trip','options':[{'kind':'flight'}]});draft.save()
+        response=self.client.post(reverse('assistant',args=[draft.pk]),data=json.dumps({'message':'No return date yet'}),content_type='application/json').json()
+        self.assertEqual(response['selections'],{});self.assertTrue(response['trip']['journey']['return_pending'])
+        self.assertEqual(response['trip']['return_date'],'');self.assertTrue(response['stale_message_indexes'])
+        generate.assert_not_called()
+
+    def test_explicit_one_way_reply_is_distinct_from_an_undecided_return(self):
+        draft=self.basics(('flight',));draft.refresh_from_db()
+        revised,label=concierge.answer(draft.summary,'return',concierge.return_answer('one-way flight'))
+        self.assertTrue(revised['journey']['one_way']);self.assertFalse(revised['journey']['return_pending'])
+        self.assertNotIn('Return/end date undecided',concierge.values(revised)['requirements'])
+        self.assertEqual(revised['return_date'],'')
+
+    def test_undecided_dates_allow_submission_with_manual_services_and_dates_later_reopen_quotes(self):
+        draft=self.basics()
+        response=self.step(draft,'return',{'return_pending':True})
+        self.assertEqual(response.status_code,200);self.assertNotEqual(response.json()['guide']['step'],'return')
+        for kind in ('flight','hotel','transfer','esim','insurance'):self.step(draft,'skip_service',{'service':kind})
+        response=self.step(draft,'notes',{'note':''}).json()
+        self.assertEqual(response['guide']['step'],'ready')
+        self.assertTrue(response['guide']['details']['hotel']['dates_pending'])
+        self.assertIn('Return/end date undecided',response['values']['requirements'])
+        sent=self.client.post(reverse('new_request'),dict(response['values'],draft_id=str(draft.pk)),HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertTrue(sent.json()['submitted'])
+        req=TravelRequest.objects.get(source_draft=draft);self.assertIsNone(req.return_date)
+        self.assertIn('dates before quoting',req.requirements)
+        summary=dict(response['trip']);revised,label=concierge.answer(summary,'return',{'nights':5})
+        concierge.reset_options(revised,summary)
+        self.assertFalse(revised['journey']['return_pending'])
+        self.assertNotIn('hotel',revised['journey']['details']);self.assertNotIn('insurance',revised['journey']['completed'])
+        self.assertNotIn('Return/end date undecided',concierge.values(revised)['requirements'])
 
     def test_private_quote_birth_dates_are_never_saved_by_the_guide(self):
         draft=self.basics(('insurance',))

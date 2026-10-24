@@ -183,9 +183,9 @@ if (planner && !planner.dataset.guided) {
         choices.forEach(option=>{
           const card=document.createElement('article');card.className='option-row';
           const choice=document.createElement('label');choice.className='option-choice';
-          const radio=document.createElement('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;if(option.sandbox){radio.dataset.stale='true';radio.disabled=true;}
+          const radio=document.createElement('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;if(option.expired){radio.dataset.stale='true';radio.disabled=true;}
           const description=document.createElement('span');description.className='option-description';
-          const label=document.createElement('strong');label.textContent=option.label+(option.stars?' '+option.stars+' ★':'')+(option.sandbox?' · TEST QUOTE':'');
+          const label=document.createElement('strong');label.textContent=option.label+(option.stars?' '+option.stars+' ★':'');
           const detail=document.createElement('span');detail.textContent=option.detail;description.append(label,detail);
           const price=document.createElement('span');price.className='option-price';
           const amount=document.createElement('strong');amount.textContent=option.price_min?`${option.price_min}${option.price_max!==option.price_min?' – '+option.price_max:''} ${option.currency}`:'Price to be confirmed';

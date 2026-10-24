@@ -295,8 +295,6 @@ def draft_select(request,draft_id):
             return JsonResponse({'error':'This option is no longer available. Refresh your trip.'},status=400)
         kind=option.get('kind','travel')
         if kind not in ('flight','hotel','esim','insurance','travel'): return JsonResponse({'error':'Invalid option.'},status=400)
-        if option.get('sandbox'):
-            return JsonResponse({'error':'This is a test insurance quote. Sama must connect the live insurance account before it can be selected.'},status=400)
         if option.get('provider') and not providers.current(option,draft.summary):
             return JsonResponse({'error':'This provider price has expired or your trip changed. Search again for current offers.'},status=400)
         selections=draft.summary.get('selections',{})
@@ -343,6 +341,8 @@ def provider_offers(request,draft_id):
             offer['trip_fingerprint']=stamp
         message={'role':'assistant','content':f'Choose an option to include in your request. Nothing is booked.' if offers else 'No offers were returned for these details. You can change them or send the request to Sama for help.',
             'options':offers,'sources':list({o['source_url']:{'url':o['source_url'],'title':o['provider']} for o in offers}.values())}
+        if offers and all(o.get('sandbox') for o in offers):
+            message['content']='Choose an insurance option to include in your request. Sama confirms final cover and price. Nothing is booked.'
         with transaction.atomic():
             draft=Draft.objects.select_for_update().get(pk=draft.pk)
             if providers.fingerprint(draft.summary)!=stamp:
@@ -429,6 +429,21 @@ def assistant(request,draft_id):
         if TravelRequest.objects.filter(source_draft=draft).exists(): return JsonResponse({'error':'This request has already been submitted.'},status=409)
         if draft.archived: return JsonResponse({'error':'Restore this closed draft before continuing.'},status=409)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now(): return JsonResponse({'error':'Please wait for the current reply.'},status=409)
+        return_reply=concierge.return_answer(content,at_return=concierge.state(draft.summary)['step']=='return') if not summary and draft.summary.get('journey') and draft.summary.get('departure') else None
+        if return_reply:
+            # Acknowledging an undecided date must update the saved guide, not just
+            # generate a reassuring chat message above a still-required date field.
+            previous=draft.summary
+            revised,label=concierge.answer(previous,'return',return_reply)
+            if itinerary_changed(previous,revised):
+                revised['selections']={};invalidate_options(draft.messages);concierge.reset_options(revised,previous)
+            draft.summary=revised
+            guide=concierge.state(revised)
+            reply={'role':'assistant','content':label+' '+guide['question'],'guided':True}
+            draft.messages.extend([{'role':'user','content':content,'guided':True},reply]);draft.save()
+            return JsonResponse({'message':reply,'trip':revised,'guide':guide,'values':concierge.values(revised),
+                'stale_message_indexes':[i for i,m in enumerate(draft.messages) if m.get('stale')],
+                'selections':revised.get('selections',{}),'estimate':estimate(revised.get('selections',{}))})
         if not summary and sum(not m.get('guided') for m in draft.messages)>=80: return JsonResponse({'error':'Your trip details are saved. Continue with the question cards to finish this request.'},status=400)
         if not summary: draft.messages.append({'role':'user','content':content})
         draft.ai_busy_until=timezone.now()+timedelta(seconds=110);draft.save()

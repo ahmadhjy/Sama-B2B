@@ -75,7 +75,44 @@ class ProviderParsingTests(SimpleTestCase):
         self.assertEqual(rows[0]['price_min'],'120.00');self.assertEqual(rows[0]['price_basis'],'total')
         self.assertIn('Breakfast',rows[0]['detail']);self.assertIn('Non-refundable',rows[0]['detail'])
         self.assertNotIn('never-store',json.dumps(rows));self.assertNotIn('private-token',json.dumps(rows))
-        self.assertEqual(call.call_args.args,('irix','POST','/api/hotels/v1/search/sync'))
+        self.assertEqual(call.call_args_list[0].args,('irix','POST','/api/hotels/v1/search/sync'))
+
+    @patch('portal.providers.mapping')
+    @patch('portal.providers.call')
+    def test_hotel_attributes_and_selected_room_details_are_supplier_sourced_without_tokens(self,call,mapping):
+        mapping.side_effect=[[{'id':2}],[{'id':100,'stars':4,'address':'Central Paris'}]]
+        def result(provider,method,path,**kwargs):
+            if method=='GET':
+                self.assertEqual(kwargs['params'],{'token':'keep-private','roomIndexes':'r1'})
+                return {'rooms':[{'index':'r1','description':'<p>Superior Double, 32 m²</p>King bed',
+                    'facilitiesDescription':'<b>WiFi</b><br>Air conditioning','images':[]}]}
+            return {'srk':'search-1','tokens':{'results':'keep-private'},'hotels':[{'index':100,'name':'Hotel','stars':None,
+                'offers':[{'id':'a','rooms':[{'index':'r1','name':'Superior Double','boardBasis':'BB','nonRefundable':True}],
+                    'packages':[{'complete':True,'packageCode':'p1','price':{'selling':{'value':120,'currency':'EUR'}},
+                        'packageRooms':[{'roomReferences':[{'roomCode':'r1','selected':True}]}]}]}]}]}
+        call.side_effect=result
+        row=providers.hotels(34,'LB',date(2027,1,1),date(2027,1,5),[{'adults':2,'childrenAges':[]}])[0]
+        self.assertEqual(row['stars'],4);self.assertEqual(row['room_details'][0]['size'],'32 m²')
+        self.assertIn('WiFi',row['room_details'][0]['facilities'])
+        self.assertIn({'label':'Meals','value':'Breakfast'},row['attributes'])
+        self.assertIn({'label':'Location','value':'Central Paris'},row['attributes'])
+        self.assertNotIn('<p>',json.dumps(row));self.assertNotIn('keep-private',json.dumps(row))
+
+    @patch('portal.providers.mapping')
+    @patch('portal.providers.call')
+    def test_missing_room_details_do_not_remove_valid_hotel_offers_or_invent_size(self,call,mapping):
+        mapping.side_effect=[[{'id':2}],[{'id':100}]]
+        call.return_value={'hotels':[{'index':100,'name':'Hotel','offers':[{'id':'a','rooms':[{'index':'1','name':'Double'}],
+            'packages':[{'complete':True,'price':{'selling':{'value':100,'currency':'USD'}},
+                'packageRooms':[{'roomReferences':[{'roomCode':'1','selected':True}]}]}]}]}]}
+        rows=providers.hotels(34,'LB',date(2027,1,1),date(2027,1,5),[{'adults':2,'childrenAges':[]}])
+        self.assertEqual(len(rows),1);self.assertIsNone(rows[0]['stars']);self.assertEqual(rows[0]['room_details'][0]['size'],'')
+        self.assertEqual(call.call_count,1)
+
+    def test_supplier_room_size_before_the_value_is_understood_without_guessing(self):
+        detail=providers.room_information({'facilitiesDescription':'TV, Room size (sqm): 20, Wi-fi'},'Studio')
+        self.assertEqual(detail['size'],'20 m²')
+        self.assertEqual(providers.room_information({'description':'Maximum occupancy: 2'},'Double')['size'],'')
 
     @patch('portal.providers.requests.request')
     def test_errors_never_expose_provider_body_and_redirects_are_not_followed(self,request):
@@ -161,12 +198,21 @@ class ProviderWorkflowTests(TestCase):
         self.assertEqual(response.status_code,503);self.assertNotIn('private',response.content.decode())
         draft.refresh_from_db();self.assertIsNone(draft.ai_busy_until)
 
-    def test_expired_and_sandbox_quotes_cannot_be_selected_or_submitted(self):
+    def test_expired_quotes_are_blocked_but_sandbox_insurance_preferences_can_be_submitted(self):
         self.signin(self.requester);draft=self.draft();offer=self.provider_offer(draft.summary)
         offer['quoted_at']=(timezone.now()-timedelta(minutes=16)).isoformat()
         draft.messages.append({'role':'assistant','options':[offer],'sources':[{'url':offer['source_url']}],'content':'Offers'})
         draft.save();self.assertEqual(self.select(draft,'2:0').status_code,400)
         draft.summary['selections']={'esim':offer};draft.save()
         with self.assertRaises(ValidationError):workflow.submit_request(self.requester,draft.pk,self.trip())
-        offer['quoted_at']=timezone.now().isoformat();offer['sandbox']=True;draft.messages[2]['options']=[offer];draft.save()
-        self.assertEqual(self.select(draft,'2:0').status_code,400)
+        offer=dict(providers.option('insurance','Basic cover','Policy conditions apply',12,'USD',{'plan_id':1},sandbox=True),
+            trip_fingerprint=providers.fingerprint(draft.summary))
+        draft.messages[2]['options']=[offer];draft.messages[2]['sources']=[{'url':offer['source_url']}]
+        draft.summary['selections']={};draft.save()
+        response=self.select(draft,'2:0');self.assertEqual(response.status_code,200)
+        self.assertTrue(response.json()['selections']['insurance']['sandbox']);self.assertIsNone(response.json()['estimate'])
+        self.assertEqual(self.client.post(reverse('new_request'),dict(self.trip(),draft_id=str(draft.pk))).status_code,302)
+        req=TravelRequest.objects.get(source_draft=draft)
+        self.assertIn('Sama confirms final cover and price',req.requirements)
+        self.assertNotIn('TEST QUOTE',req.requirements)
+        self.assertTrue(req.messages.filter(metadata__options__0__sandbox=True).exists())
