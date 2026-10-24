@@ -31,6 +31,9 @@ def submit_request(user, draft_id, data):
     if draft.summary.get('selections') and itinerary_changed(draft.summary,data):
         raise ValidationError('Route, dates or passengers changed. Save your revised trip details, then choose options for the updated trip before submitting.')
     preferences=preference_text(draft.summary.get('selections',{}))
+    from .providers import current
+    if any(o.get('provider') and not current(o,draft.summary) for o in draft.summary.get('selections',{}).values()):
+        raise ValidationError('A selected provider offer has expired. Search again and choose a current offer before submitting.')
     if preferences:
         data['requirements']=(data.get('requirements','')+'\n\nSelected travel preferences (Sama to verify):\n'+preferences).strip()
     req=TravelRequest.objects.create(company=user.company,requester=user,source_draft=draft,

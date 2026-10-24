@@ -21,6 +21,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_GET
 from . import workflow
+from . import providers
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
 from .ai import AssistantUnavailable, generate
 from .chat import option_groups, preference_text, estimate, itinerary_changed, invalidate_options
@@ -154,7 +155,8 @@ def new_request(request):
         'submitted_trips':visible_requests(request.user).filter(requester=request.user)[:6],
         'drafts':Draft.objects.filter(user=request.user,archived=False,travelrequest__isnull=True).order_by('created_at'),
         'archived_drafts':Draft.objects.filter(user=request.user,archived=True,travelrequest__isnull=True).order_by('-updated_at'),
-        'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary.get('reviewed')) or request.method=='POST'})
+        'provider_countries':providers.countries(),'provider_available':providers.available(),
+        'assistant_available':settings.AI_ENABLED and bool(settings.OPENAI_API_KEY),'summary_open':bool(draft.summary.get('destination')) or request.method=='POST'})
 
 @login_required
 @require_POST
@@ -213,11 +215,78 @@ def draft_select(request,draft_id):
         except (IndexError,KeyError,TypeError,ValueError):
             return JsonResponse({'error':'This option is no longer available. Refresh your trip.'},status=400)
         kind=option.get('kind','travel')
-        if kind not in ('flight','hotel','travel'): return JsonResponse({'error':'Invalid option.'},status=400)
+        if kind not in ('flight','hotel','esim','insurance','travel'): return JsonResponse({'error':'Invalid option.'},status=400)
+        if option.get('sandbox'):
+            return JsonResponse({'error':'This is a test insurance quote. Sama must connect the live insurance account before it can be selected.'},status=400)
+        if option.get('provider') and not providers.current(option,draft.summary):
+            return JsonResponse({'error':'This provider price has expired or your trip changed. Search again for current offers.'},status=400)
         selections=draft.summary.get('selections',{})
         selections[kind]=dict(option,id=f'{index}:{number}')
         draft.summary['selections']=selections;draft.save()
     return JsonResponse({'selections':selections,'estimate':estimate(selections)})
+
+
+@login_required
+@require_GET
+def provider_cities(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    get_object_or_404(Draft,pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
+    name=request.GET.get('q','').strip()[:80];country=request.GET.get('country','')[:2]
+    if len(name)<2: return JsonResponse({'cities':[]})
+    if not allow_attempt(f'provider-cities:{request.user.pk}',60,3600):
+        return JsonResponse({'error':'Please wait before searching again.'},status=429)
+    try: return JsonResponse({'cities':providers.hotel_cities(name,country)})
+    except providers.ProviderUnavailable as exc: return JsonResponse({'error':str(exc)},status=503)
+
+
+@login_required
+@require_POST
+@sensitive_post_parameters()
+def provider_offers(request,draft_id):
+    if not can_create(request.user): raise PermissionDenied()
+    if not allow_attempt(f'provider-offers:{request.user.pk}',30,3600):
+        return JsonResponse({'error':'Please wait before searching again.'},status=429)
+    try:
+        data=json.loads(request.body)
+        if not isinstance(data,dict) or data.get('kind') not in ('hotel','esim','insurance'): raise ValueError()
+    except (ValueError,UnicodeDecodeError): return JsonResponse({'error':'Choose a service to search.'},status=400)
+    kind=data['kind']
+    with transaction.atomic():
+        draft=get_object_or_404(Draft.objects.select_for_update(),pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
+        if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
+            return JsonResponse({'error':'Please wait for the current search or reply.'},status=409)
+        trip=dict(draft.summary)
+        draft.ai_busy_until=timezone.now()+timedelta(seconds=300);draft.save(update_fields=['ai_busy_until'])
+    try:
+        offers=providers.search(kind,trip,data)
+        stamp=providers.fingerprint(trip)
+        for offer in offers:
+            offer['trip_fingerprint']=stamp
+        message={'role':'assistant','content':f'Choose an option to include in your request. Nothing is booked.' if offers else 'No offers were returned for these details. You can change them or send the request to Sama for help.',
+            'options':offers,'sources':list({o['source_url']:{'url':o['source_url'],'title':o['provider']} for o in offers}.values())}
+        with transaction.atomic():
+            draft=Draft.objects.select_for_update().get(pk=draft.pk)
+            if providers.fingerprint(draft.summary)!=stamp:
+                raise ValidationError('Your trip changed during the search. Search again with the updated details.')
+            # A new search replaces this service's earlier quotes, including different ages/rooms.
+            for previous in draft.messages:
+                for old in previous.get('options',[]):
+                    if old.get('provider') and old.get('kind')==kind: old['expired']=True
+            selections=draft.summary.get('selections',{});selections.pop(kind,None)
+            draft.summary['selections']=selections
+            draft.messages.append(message)
+            message['message_index']=len(draft.messages)-1
+            message['selections']=selections;message['estimate']=estimate(selections)
+            message['expired_option_ids']=[f'{i}:{j}' for i,m in enumerate(draft.messages) for j,o in enumerate(m.get('options',[])) if o.get('expired')]
+            draft.ai_busy_until=None;draft.save()
+        return JsonResponse({'message':message})
+    except (ValidationError,providers.ProviderUnavailable) as exc:
+        Draft.objects.filter(pk=draft.pk).update(ai_busy_until=None)
+        return JsonResponse({'error':' '.join(exc.messages) if isinstance(exc,ValidationError) else str(exc)},status=400 if isinstance(exc,ValidationError) else 503)
+    except Exception:
+        Draft.objects.filter(pk=draft.pk).update(ai_busy_until=None)
+        # Provider schema errors must not disclose birth dates, credentials or upstream bodies.
+        return JsonResponse({'error':'The provider could not return valid offers. Sama can prepare your quote manually.'},status=503)
 
 @login_required
 @require_POST

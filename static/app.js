@@ -87,7 +87,7 @@ if (planner) {
     });
     document.querySelector('#package-estimate').textContent=result.estimate?`Estimated total: ${result.estimate.low} – ${result.estimate.high} ${result.estimate.currency}`:'Sama will confirm the price in your quotation.';
     conversation.querySelectorAll('[data-option-id]').forEach(radio=>{
-      if(result.stale_message_indexes?.includes(Number(radio.value.split(':')[0]))){
+      if(result.stale_message_indexes?.includes(Number(radio.value.split(':')[0])) || result.expired_option_ids?.includes(radio.value)){
         radio.dataset.stale='true';radio.disabled=true;
       }
       radio.checked=Object.values(selections).some(option=>option.id===radio.value);
@@ -97,7 +97,7 @@ if (planner) {
   conversation.addEventListener('change',async event=>{
     const radio=event.target.closest('[data-option-id]');if(!radio||busy)return;
     setBusy(true);
-    try{const result=await postJSON(planner.dataset.selectUrl,{option_id:radio.value});showSelections(result);setBusy(false);hint.textContent='Preference saved. Select Review my request to check and send this trip.';}
+    try{const result=await postJSON(planner.dataset.selectUrl,{option_id:radio.value});showSelections(result);setBusy(false);hint.textContent='Option saved. Add another service or send your request below.';advanceTrip();document.querySelector('#provider-inputs').open=false;showReview('Your option is saved. Check your trip, then submit it to Sama.');}
     catch(err){showSelections({selections});setBusy(false);error.textContent=err.message;}
   });
   let edited = false;
@@ -149,6 +149,7 @@ if (planner) {
       showSelections(result);
       tripDetails=result.trip;
       if (editVersion===savingVersion) edited=!!requestForm.elements.namedItem('traveller_details').value;
+      advanceTrip();
       error.textContent=editVersion===savingVersion
         ? 'Reviewed trip details saved. Private details and selected files stay in this form until you submit.'
         : 'The earlier details were saved. Save again to keep the changes you just made.';
@@ -172,23 +173,23 @@ if (planner) {
     const body = document.createElement('div'); body.className = 'message-body'; body.textContent = message.content;
     element.append(label,body);
     if(message.options?.length){
-      ['flight','hotel','travel'].forEach(kind=>{
+      ['flight','hotel','esim','insurance','travel'].forEach(kind=>{
         const choices=message.options.map((option,index)=>({...option,index})).filter(option=>(option.kind||'travel')===kind);
         if(!choices.length)return;
         const group=document.createElement('section');group.className='option-group '+kind;
         const heading=document.createElement('div');heading.className='option-group-heading';
-        const title=document.createElement('strong');title.textContent=kind==='flight'?'✈ Flight options':kind==='hotel'?'▤ Hotel options':'✦ Travel options';
-        const caption=document.createElement('small');caption.textContent='Published options · Sama confirms availability';heading.append(title,caption);group.append(heading);
+        const title=document.createElement('strong');title.textContent=kind==='flight'?'✈ Flight options':kind==='hotel'?'▤ Hotel options':kind==='esim'?'▣ eSIM plans':kind==='insurance'?'✓ Travel insurance':'✦ Travel options';
+        const caption=document.createElement('small');caption.textContent=message.options.some(o=>o.provider)?'Provider prices · Nothing booked':'Published options · Sama confirms availability';heading.append(title,caption);group.append(heading);
         choices.forEach(option=>{
           const card=document.createElement('article');card.className='option-row';
           const choice=document.createElement('label');choice.className='option-choice';
-          const radio=document.createElement('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;
+          const radio=document.createElement('input');radio.type='radio';radio.name='travel-choice-'+kind;radio.value=`${message.message_index}:${option.index}`;radio.dataset.optionId=radio.value;if(option.sandbox){radio.dataset.stale='true';radio.disabled=true;}
           const description=document.createElement('span');description.className='option-description';
-          const label=document.createElement('strong');label.textContent=option.label+(option.stars?' '+option.stars+' ★':'');
+          const label=document.createElement('strong');label.textContent=option.label+(option.stars?' '+option.stars+' ★':'')+(option.sandbox?' · TEST QUOTE':'');
           const detail=document.createElement('span');detail.textContent=option.detail;description.append(label,detail);
           const price=document.createElement('span');price.className='option-price';
           const amount=document.createElement('strong');amount.textContent=option.price_min?`${option.price_min}${option.price_max!==option.price_min?' – '+option.price_max:''} ${option.currency}`:'Price to be confirmed';
-          const basis=document.createElement('small');basis.textContent=option.price_min?(option.price_basis==='per_night'?'per night':option.price_basis==='per_person'?'per passenger':'party / stay total')+' · Estimate':'';price.append(amount,basis);
+          const basis=document.createElement('small');basis.textContent=option.price_min?(option.price_basis==='per_night'?'per night':option.price_basis==='per_person'?'per passenger':option.price_basis==='per_unit'?'one eSIM':option.price_basis==='unknown'?'from price':'party / stay total')+(option.provider?' · Provider quote':' · Estimate'):'';price.append(amount,basis);
           choice.append(radio,description,price);card.append(choice);
           try{const url=new URL(option.source_url);if(['https:','http:'].includes(url.protocol)){
             const source=document.createElement('a');source.className='option-source';source.href=url.href;source.target='_blank';source.rel='noopener noreferrer';source.textContent='View source ↗';card.append(source);
@@ -208,8 +209,102 @@ if (planner) {
       });
       element.append(sources);
     }
-    conversation.insertBefore(element, document.querySelector('#selected-itinerary')); conversation.scrollTop=conversation.scrollHeight;
+    conversation.insertBefore(element, document.querySelector('#provider-search')); conversation.scrollTop=conversation.scrollHeight;
   }
+  const providerForm=document.querySelector('#provider-form');
+  const providerPanel=document.querySelector('#provider-search');
+  const providerStatus=document.querySelector('#provider-search-status');
+  const connections=JSON.parse(document.querySelector('#provider-available').textContent);
+  let providerKind='hotel';
+  function advanceTrip(){
+    const known=!!tripDetails.destination;
+    providerPanel.hidden=!known;
+    if(!known)return;
+    if(!edited)fillTrip(tripDetails);
+    showReview('Choose any offers above, check your trip and send it to Sama.',false);
+    const count=Number(tripDetails.travellers)||0;
+    document.querySelector('#trip-review-overview').textContent=[tripDetails.origin&&tripDetails.destination?tripDetails.origin+' → '+tripDetails.destination:tripDetails.destination,tripDetails.departure,tripDetails.return_date,count?count+' traveller(s)':''].filter(Boolean).join(' · ');
+    document.querySelector('#trip-edit-fields').open=!requestForm.checkValidity();
+    summary.hidden=true;manual.textContent='Review & send request →';manual.classList.add('primary');
+    hint.textContent='Choose any extras above, then select Submit request to Sama. Nothing is booked yet.';
+    const births=document.querySelector('#offer-birthdates');
+    if(births.children.length!==count){
+      births.replaceChildren();
+      for(let i=0;i<Math.min(count,100);i++){
+        const row=document.createElement('div');row.className='field';
+        const label=document.createElement('label');label.htmlFor='offer-birth-'+i;label.textContent='Traveller '+(i+1)+' · birth date';
+        const field=document.createElement('input');field.type='date';field.id=label.htmlFor;field.dataset.birthDate='true';row.append(label,field);births.append(row);
+      }
+    }
+  }
+  function chooseProvider(kind){
+    providerKind=kind;
+    providerForm.querySelectorAll('[data-provider]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.provider===kind)));
+    providerForm.querySelectorAll('[data-provider-fields]').forEach(section=>{
+      section.hidden=section.dataset.providerFields!==kind;
+      section.querySelectorAll('input,select,button').forEach(field=>field.disabled=section.hidden);
+    });
+    document.querySelector('#find-provider-offers').textContent='Show '+({hotel:'hotel offers',esim:'eSIM plans',insurance:'insurance plans'}[kind])+' →';
+    document.querySelector('#provider-connection').textContent=connections[kind]?'':'This provider is not connected yet. You can still send this service request to Sama.';
+    providerStatus.textContent='';
+  }
+  providerForm.querySelectorAll('[data-provider]').forEach(button=>button.addEventListener('click',()=>chooseProvider(button.dataset.provider)));
+  function addRoom(){
+    const holder=document.querySelector('#offer-rooms');if(holder.children.length>=10)return;
+    const row=document.createElement('div');row.className='offer-room';
+    const adultsLabel=document.createElement('label');adultsLabel.textContent='Adults';
+    const adults=document.createElement('input');adults.type='number';adults.min='1';adults.max='9';adults.value='1';adults.dataset.roomAdults='true';adultsLabel.append(adults);
+    const childrenLabel=document.createElement('label');childrenLabel.textContent='Children’s ages (comma-separated)';
+    const children=document.createElement('input');children.placeholder='e.g. 4, 7';children.dataset.roomChildren='true';childrenLabel.append(children);
+    const remove=document.createElement('button');remove.type='button';remove.className='text-button';remove.textContent='Remove room';remove.addEventListener('click',()=>{if(holder.children.length>1)row.remove();});
+    row.append(adultsLabel,childrenLabel,remove);holder.append(row);
+  }
+  addRoom();chooseProvider('hotel');
+  document.querySelector('#add-offer-room').addEventListener('click',addRoom);
+  document.querySelector('#offer-country').addEventListener('change',()=>document.querySelector('#offer-city').replaceChildren(new Option('Find and choose a city','')));
+  document.querySelector('#find-hotel-city').addEventListener('click',async()=>{
+    const country=document.querySelector('#offer-country').value;
+    const query=document.querySelector('#offer-city-query').value.trim();
+    if(!country||query.length<2){providerStatus.textContent='Choose the country and enter at least two letters of the city.';return;}
+    const button=document.querySelector('#find-hotel-city');button.disabled=true;providerStatus.textContent='Finding cities…';
+    try{
+      const response=await fetch(providerForm.dataset.citiesUrl+'?'+new URLSearchParams({country,q:query}));const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Could not find cities.');
+      const select=document.querySelector('#offer-city');select.replaceChildren(new Option('Choose a city',''));
+      result.cities.forEach(city=>select.add(new Option(city.name,city.id)));
+      if(result.cities.length===1)select.value=result.cities[0].id;
+      providerStatus.textContent=result.cities.length?'Choose the matching city.':'No matching city. Try a different spelling.';
+    }catch(err){providerStatus.textContent=err.message;}finally{button.disabled=false;}
+  });
+  providerForm.addEventListener('submit',async event=>{
+    event.preventDefault();if(busy)return;
+    if(!requestForm.checkValidity()){
+      showReview('Complete the missing trip details below so the provider can quote accurately.');requestForm.reportValidity();return;
+    }
+    const data={kind:providerKind,country:document.querySelector('#offer-country').value};
+    if(providerKind==='hotel'){
+      data.city_id=document.querySelector('#offer-city').value;data.nationality=document.querySelector('#offer-nationality').value;
+      data.rooms=[...document.querySelectorAll('.offer-room')].map(row=>({adults:Number(row.querySelector('[data-room-adults]').value),childrenAges:row.querySelector('[data-room-children]').value.trim()?row.querySelector('[data-room-children]').value.split(',').map(v=>Number(v.trim())):[]}));
+    }
+    if(providerKind==='insurance'){
+      data.residence=document.querySelector('#offer-residence').value;
+      data.birth_dates=[...document.querySelectorAll('[data-birth-date]')].map(field=>field.value);
+    }
+    setBusy(true);document.querySelector('#find-provider-offers').disabled=true;providerStatus.textContent='Checking the provider’s offers…';
+    try{
+      // Save edited trip details before searching. Provider prices are bound to this exact itinerary.
+      const body=new URLSearchParams();new FormData(requestForm).forEach((value,key)=>{if(typeof value==='string'&&key!=='traveller_details')body.append(key,value);});
+      const response=await fetch(planner.dataset.saveUrl,{method:'POST',credentials:'same-origin',body,headers:{'X-CSRFToken':csrf()}});const saved=await response.json();
+      if(!response.ok)throw new Error(saved.error||'Check your trip details.');
+      tripDetails=saved.trip;showSelections(saved);
+      const result=await postJSON(providerForm.dataset.offersUrl,data);append(result.message);showSelections(result.message);
+      providerStatus.textContent=result.message.options.length?'Select an offer above to add it to this trip.':'No matching offers. Adjust the details or send the request to Sama.';
+      document.querySelectorAll('[data-birth-date]').forEach(field=>field.value='');
+      setBusy(false);advanceTrip();
+      conversation.querySelectorAll('.chat-message').item(conversation.querySelectorAll('.chat-message').length-1)?.scrollIntoView({behavior:'smooth',block:'start'});
+    }catch(err){setBusy(false);providerStatus.textContent=err.message;}
+    finally{document.querySelector('#find-provider-offers').disabled=false;}
+  });
   function setBusy(value) {
     busy=value; form.querySelector('button').disabled=value || !available;
     summary.disabled=value || !available || !hasConversation;
@@ -223,8 +318,8 @@ if (planner) {
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || !input.value.trim()) return;
     const message=input.value.trim(); append({role:'user',content:message}); hasConversation=true;input.value='';setBusy(true);
-    if (!review.hidden) document.querySelector('#review-status').textContent='You have added to the chat. Update the form yourself or select Review my request again before submitting.';
-    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); if(result.message.selections)showSelections(result.message); if(result.message.trip && Object.keys(result.message.trip).length){tripDetails=result.message.trip;if(!edited)fillTrip(tripDetails);} setBusy(false);hint.textContent='Choose flight and hotel options above, then click Review my request to send this trip to Sama.'; }
+    if (!review.hidden) document.querySelector('#review-status').textContent='Updating your trip details…';
+    try { const result=await postJSON(planner.dataset.aiUrl,{message}); append(result.message); if(result.message.selections)showSelections(result.message); if(result.message.trip && Object.keys(result.message.trip).length){tripDetails=result.message.trip;if(!edited)fillTrip(tripDetails);} setBusy(false);advanceTrip(); }
     catch (err) {setBusy(false);error.textContent=err.message;}
   });
   summary.addEventListener('click',async () => {
@@ -247,6 +342,7 @@ if (planner) {
     } catch (err) {setBusy(false);error.textContent=err.message;}
     finally {editableFields.forEach(field=>{field.readOnly=false;});selects.forEach(field=>{field.disabled=false;});}
   });
+  advanceTrip();
   conversation.scrollTop=conversation.scrollHeight;
   summary.disabled = !available || !hasConversation;
 }

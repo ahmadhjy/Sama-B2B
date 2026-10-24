@@ -19,6 +19,7 @@ psycopg-binary==3.3.6
 py-vapid==1.9.4
 pycparser==3.0
 pywebpush==2.5.0
+pycountry==24.6.1
 reportlab==4.5.1
 requests==2.34.2
 sqlparse==0.6.0

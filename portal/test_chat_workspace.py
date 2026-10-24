@@ -129,7 +129,7 @@ class ChatWorkspaceTests(TestCase):
                                     'hotel':dict(choice,price_basis='total',currency='EUR')}))
 
     @patch('portal.ai.requests.post')
-    def test_research_returns_four_flights_and_three_hotels_with_sources(self,post):
+    def test_research_returns_flights_but_hotels_must_come_from_provider(self,post):
         from .ai import generate
         options=[dict(kind=kind,label=f'{kind} {i}',detail='Dated source details',source_url=f'https://example.com/{kind}/{i}',
             price_min=None,price_max=None,price_basis='unknown',currency='',stars=5 if kind=='hotel' else None)
@@ -139,7 +139,8 @@ class ChatWorkspaceTests(TestCase):
             'output':[{'type':'web_search_call','action':{'sources':[{'url':o['source_url'],'title':o['label']} for o in options]}},
                       {'type':'message','content':[{'type':'output_text','text':json.dumps(reply)}]}]})
         result=generate(self.requester,[{'role':'user','content':'Find flights and hotels for Dubai.'}])
-        self.assertEqual(len(result['options']),7)
+        self.assertEqual(len(result['options']),4)
+        self.assertTrue(all(o['kind']=='flight' for o in result['options']))
         self.assertEqual(result['trip']['destination'],'Dubai')
         self.assertTrue(all(o['price_min'] is None for o in result['options']))
         self.assertEqual(post.call_args.kwargs['json']['include'],['web_search_call.action.sources'])

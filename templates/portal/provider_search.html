@@ -1,0 +1,24 @@
+<section class="provider-search" id="provider-search" aria-labelledby="provider-title" hidden>
+<span class="eyebrow">NEXT · CHOOSE YOUR OPTIONS</span><h2 id="provider-title">Add to your trip</h2>
+<p>Search provider offers here, select what you like, then send your request to Sama. Sama can also check other options for you.</p>
+<details id="provider-inputs" open><summary>Find offers for this trip</summary><form id="provider-form" data-offers-url="{% url 'provider_offers' draft.pk %}" data-cities-url="{% url 'provider_cities' draft.pk %}">
+<div class="provider-tabs" role="group" aria-label="Service to search">
+<button type="button" data-provider="hotel" aria-pressed="true">▤ Hotels</button>
+<button type="button" data-provider="esim" aria-pressed="false">▣ eSIM</button>
+<button type="button" data-provider="insurance" aria-pressed="false">✓ Insurance</button></div>
+<p id="provider-connection" role="status"></p>
+<div class="field"><label for="offer-country">Destination country</label><select id="offer-country" required><option value="">Choose country</option>{% for country in provider_countries %}<option value="{{ country.code }}">{{ country.name }}</option>{% endfor %}</select></div>
+<div data-provider-fields="hotel">
+<div class="field"><label for="offer-city-query">Hotel city</label><div class="city-search"><input id="offer-city-query" placeholder="City name"><button type="button" id="find-hotel-city" class="button secondary">Find city</button></div><select id="offer-city" aria-label="Choose hotel city"><option value="">Find and choose a city</option></select></div>
+<div class="field"><label for="offer-nationality">Lead traveller’s nationality</label><select id="offer-nationality"><option value="">Choose nationality</option>{% for country in provider_countries %}<option value="{{ country.code }}">{{ country.name }}</option>{% endfor %}</select></div>
+<fieldset><legend>Who is staying in each room?</legend><p class="muted small">Include infants as age 0. Guests must match your trip’s passenger count.</p><div id="offer-rooms"></div><button type="button" id="add-offer-room" class="text-button">＋ Add another room</button></fieldset>
+</div>
+<div data-provider-fields="insurance" hidden>
+<div class="field"><label for="offer-residence">Country of residence</label><select id="offer-residence"><option value="">Choose residence</option>{% for country in provider_countries %}<option value="{{ country.code }}">{{ country.name }}</option>{% endfor %}</select></div>
+<div id="offer-birthdates"></div><p class="muted small">Birth dates are sent directly to the insurance provider for this quote. They are not saved in this conversation or sent to the AI.</p>
+</div>
+<p data-provider-fields="esim" hidden>Prices are for one eSIM. Sama will confirm quantity, device compatibility and activation before purchase.</p>
+<button type="submit" class="button primary full" id="find-provider-offers">Show hotel offers →</button><p id="provider-search-status" role="status"></p>
+<small>No payment, booking or policy is created by this search. Prices may change before confirmation.</small>
+</form></details></section>
+{{ provider_available|json_script:'provider-available' }}

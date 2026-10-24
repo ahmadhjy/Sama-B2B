@@ -21,6 +21,8 @@ urlpatterns = [
     path('drafts/<uuid:draft_id>/archive/',views.draft_archive,name='draft_archive'),
     path('drafts/<uuid:draft_id>/save/',views.draft_save,name='draft_save'),
     path('drafts/<uuid:draft_id>/select/',views.draft_select,name='draft_select'),
+    path('drafts/<uuid:draft_id>/offers/',views.provider_offers,name='provider_offers'),
+    path('drafts/<uuid:draft_id>/cities/',views.provider_cities,name='provider_cities'),
     path('queue/',views.queue,name='queue'),path('requests/<uuid:req_id>/claim/',views.claim,name='claim'),
     path('requests/<uuid:req_id>/',views.request_detail,name='request_detail'),
     path('requests/<uuid:req_id>/files/',views.request_files,name='request_files'),
