@@ -43,7 +43,9 @@ def fingerprint(trip):
 def current(offer, trip):
     try:
         age=(timezone.now()-datetime.fromisoformat(offer['quoted_at'])).total_seconds()
-        return not offer.get('expired') and 0<=age<=900 and offer['trip_fingerprint']==fingerprint(trip)
+        from .hotel_search import query_fingerprint
+        return (not offer.get('expired') and 0<=age<=900 and offer['trip_fingerprint']==fingerprint(trip)
+            and (not offer.get('hotel_fingerprint') or offer['hotel_fingerprint']==query_fingerprint(trip)))
     except (KeyError,ValueError,TypeError): return False
 
 
@@ -181,7 +183,8 @@ def search(kind, trip, data):
             parent=mapping('countries',iso=country.alpha_2)
             cities=mapping('cities',cityIds=str(city_id),countryId=parent[0]['id']) if parent else []
             if not any(int(c['id'])==city_id for c in cities): raise ValueError()
-            return hotels(city_id,nationality.alpha_2,start,end,rooms)
+            return hotels(city_id,nationality.alpha_2,start,end,rooms,
+                criteria=trip.get('journey',{}).get('hotel_criteria',{}),exclude=data.get('_exclude',()))
         if kind=='insurance':
             residence=pycountry.countries.get(alpha_2=str(data.get('residence','')).upper())
             births=[date.fromisoformat(v) for v in data.get('birth_dates',[])]
@@ -227,16 +230,26 @@ def insurance(country,residence,start,end,births):
     return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
 
 
-def hotels(city_id,nationality,start,end,rooms):
+class HotelOffers(list):
+    def __init__(self,rows,meta):
+        super().__init__(rows);self.search_meta=meta
+
+
+def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=()):
+    from . import hotel_search
     nationalities=mapping('nationalities',iso=nationality)
     if not nationalities: raise ProviderUnavailable('The hotel provider does not recognise this nationality.')
-    properties=mapping('hotels',cityId=city_id)
-    if not properties: return []
+    meta=None
+    if criteria is not None:
+        data,properties,meta=hotel_search.fetch(city_id,nationalities[0]['id'],start,end,rooms,criteria,exclude)
+    else:
+        properties=mapping('hotels',cityId=city_id)
+        if not properties: return []
+        data=call('irix','POST','/api/hotels/v1/search/sync',json={
+            'accommodation':[p['id'] for p in properties[:100]],'checkIn':str(start),'checkOut':str(end),
+            'occupancy':{'leaderNationality':nationalities[0]['id'],'rooms':rooms},
+            'completeOffersOnly':True,'sellingChannel':'B2B','language':'en_GB','timeout':20,'availableOnly':True})
     property_map={str(p['id']):p for p in properties}
-    data=call('irix','POST','/api/hotels/v1/search/sync',json={
-        'accommodation':[p['id'] for p in properties[:100]],'checkIn':str(start),'checkOut':str(end),
-        'occupancy':{'leaderNationality':nationalities[0]['id'],'rooms':rooms},
-        'completeOffersOnly':True,'sellingChannel':'B2B','language':'en_GB','timeout':20,'availableOnly':True})
     rows=[]
     for hotel in data.get('hotels') or []:
         hotel_rows=[]
@@ -248,13 +261,14 @@ def hotels(city_id,nationality,start,end,rooms):
                 selected=[]
                 for room in package.get('packageRooms') or []:
                     selected += [str(r.get('roomCode')) for r in room.get('roomReferences') or [] if r.get('selected') is True]
+                if meta and not hotel_search.package_matches([room_map.get(code,{}) for code in selected],meta['criteria']): continue
                 descriptions=[];room_details=[];attributes=[]
                 for code in selected:
                     r=room_map.get(code,{})
                     name=r.get('name') or r.get('description')
                     if isinstance(name,str):
                         meal={'RO':'Room only','BB':'Breakfast','HB':'Half board','FB':'Full board','AI':'All inclusive','SC':'Self catering'}.get(r.get('boardBasis'),'Meals to confirm')
-                        cancellation='Non-refundable' if r.get('nonRefundable') is True else 'Cancellation conditions apply'
+                        cancellation='Non-refundable' if r.get('nonRefundable') is True else 'Refundable · see conditions' if r.get('nonRefundable') is False else 'Cancellation conditions apply'
                         name=plain(name,160)
                         descriptions.append(name+' · '+meal+' · '+cancellation)
                         attributes.extend([{'label':'Room','value':name},{'label':'Meals','value':meal},
@@ -266,15 +280,24 @@ def hotels(city_id,nationality,start,end,rooms):
                 if type(stars) is not int or not 1<=stars<=5: stars=None
                 address=plain(prop.get('address'),240)
                 if address: attributes.append({'label':'Location','value':address})
+                km=(meta or {}).get('distances',{}).get(str(hotel.get('index')))
+                if km is not None:
+                    attributes.append({'label':'Distance','value':f"{km:.2f} km from {meta['point']['name']} (straight-line)"})
                 detail=f"{start} to {end} · {len(rooms)} room(s) · "+(' / '.join(descriptions) or 'Room package')+'. Sama confirms final terms.'
                 row=option('hotel',unescape(hotel.get('name') or 'Hotel'),detail,
                     price.get('value'),price.get('currency'),{'hotel_index':hotel.get('index'),
                     'offer_id':offer.get('id'),'package_code':package.get('packageCode'),
                     'room_codes':selected,'srk':data.get('srk')},stars=stars,
                     attributes=[dict(label=key,value=value) for key,value in dict.fromkeys((a['label'],a['value']) for a in attributes)],room_details=room_details)
-                if row: hotel_rows.append(row)
-        rows.extend(sorted(hotel_rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:2])
-    rows=sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
+                if row:
+                    if km is not None: row['distance_km']=round(km,3)
+                    hotel_rows.append(row)
+        rows.extend(sorted(hotel_rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:1 if meta else 2])
+    sort=(meta or {}).get('criteria',{}).get('sort')
+    if sort=='distance': rows.sort(key=lambda r:(r.get('distance_km',float('inf')),r['currency'],Decimal(r['price_min'])))
+    elif sort=='stars': rows.sort(key=lambda r:(-(r.get('stars') or 0),r['currency'],Decimal(r['price_min'])))
+    elif sort!='recommended': rows.sort(key=lambda r:(r['currency'],Decimal(r['price_min'])))
+    rows=rows[:6]
     # Fetch descriptions only for the options we actually show. The results
     # token stays in memory and never enters saved offers or browser responses.
     token=(data.get('tokens') or {}).get('results');srk=data.get('srk')
@@ -295,7 +318,7 @@ def hotels(city_id,nationality,start,end,rooms):
         for row in rows:
             ref=row['provider_reference'];found=extra.get((str(ref['hotel_index']),str(ref['offer_id'])),{})
             row['room_details']=[room_information(found.get(r['index'],{}),r['name'],fallback=r) for r in row['room_details']]
-    return rows
+    return HotelOffers(rows,meta) if meta else rows
 
 
 def plain(value,limit=1500):

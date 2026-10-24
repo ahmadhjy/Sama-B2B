@@ -1,6 +1,6 @@
 """Small, saved conversation steps. These collect preferences, never bookings."""
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import re
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -25,6 +25,79 @@ CONTEXT_QUESTIONS = {'city': 'Which city would you like to stay in?',
     'country': 'Which country is your destination in?',
     'nationality': 'What is the lead traveller’s nationality?',
     'residence': 'Which country do the travellers live in?'}
+
+REPLY_FIELDS={k:{'type':['string','null']} for k in ('origin','destination','departure','return_date','cabin','airline','transfer_note','note')}
+REPLY_FIELDS.update({k:{'type':['integer','null']} for k in ('nights','adults','children','infants')})
+REPLY_SCHEMA={'type':['object','null'],'properties':REPLY_FIELDS,'required':list(REPLY_FIELDS),'additionalProperties':False}
+
+
+def direct_reply(summary,scope,content):
+    """Recognise simple intake replies without model latency or ambiguous date guesses."""
+    value=content.strip();lower=value.lower()
+    if scope=='route':
+        city=r"[^\d?!,;:]{2,80}"
+        match=re.fullmatch(r'(?:from\s+)?('+city+r')\s+(?:to|→)\s+('+city+r')',value,re.I)
+        if match and not re.search(r'\b(want|need|hotel|flight|book|change|show|find)\b',lower):
+            return {'origin':match[1].strip(),'destination':match[2].strip()}
+        if (re.fullmatch(city,value) and len(value.split())<=4 and
+                not re.search(r'\b(i|want|need|hotel|flight|book|change|show|find|what|where|when|instead|please|no|yes|not|near|around|breakfast|stars|prefer)\b',lower)):
+            return {'destination' if summary.get('origin') else 'origin':value}
+    if scope in ('departure','return'):
+        nights=re.fullmatch(r'(?:for\s+)?(\d+)\s+nights?',lower)
+        if scope=='return' and nights: return {'nights':int(nights[1])}
+        parsed=None;clean=re.sub(r'^(?:on|leaving|returning)\s+','',value,flags=re.I).replace(',','')
+        for pattern in ('%Y-%m-%d','%d %B %Y','%d %b %Y','%B %d %Y','%b %d %Y'):
+            try: parsed=datetime.strptime(clean,pattern).date();break
+            except ValueError: pass
+        if lower in ('today','tomorrow'): parsed=timezone.localdate()+timedelta(days=lower=='tomorrow')
+        if parsed: return {'departure' if scope=='departure' else 'return_date':parsed.isoformat()}
+    if scope=='travellers':
+        pattern=r'\b(\d+)\s*(adults?|children|child|kids?|infants?|babies|baby)\b'
+        matches=re.findall(pattern,lower)
+        remainder=re.sub(pattern,'',lower)
+        remainder=re.sub(r'\b(and|with|plus|only|travelling|traveling|passengers|people)\b','',remainder)
+        if re.search(r'\w',remainder): return None
+        if matches and any(label.startswith('adult') for _,label in matches):
+            party={'adults':0,'children':0,'infants':0}
+            for number,label in matches:
+                key='adults' if label.startswith('adult') else 'children' if label in ('children','child','kid','kids') else 'infants'
+                party[key]+=int(number)
+            return party
+    return None
+
+
+def chat_answer(summary,scope,reply):
+    """Apply only the facts relevant to the current chat question, through normal validation."""
+    if not isinstance(reply,dict): return summary,False
+    result=deepcopy(summary);done=False
+    if scope=='route':
+        for key in ('origin','destination'):
+            if reply.get(key): result[key]=text(reply[key])
+        if result.get('origin') and result.get('destination'):
+            result,_=answer(result,'route',{'origin':result['origin'],'destination':result['destination']});done=True
+    elif scope=='departure' and reply.get('departure'):
+        result,_=answer(result,scope,{'departure':reply['departure']});done=True
+    elif scope=='return' and (reply.get('return_date') or reply.get('nights') is not None):
+        result,_=answer(result,scope,{'return_date':reply.get('return_date'),'nights':reply.get('nights')});done=True
+    elif scope=='travellers' and reply.get('adults') is not None:
+        # The model must leave unknown categories null; ask rather than assume children are zero.
+        if all(reply.get(k) is not None for k in ('adults','children','infants')):
+            result,_=answer(result,scope,{k:reply[k] for k in ('adults','children','infants')});done=True
+    elif scope=='flight' and (reply.get('cabin') or reply.get('airline') is not None):
+        detail=result.get('journey',{}).get('details',{}).get('flight',{})
+        result,_=answer(result,scope,{'cabin':reply.get('cabin') or detail.get('cabin','Economy'),'airline':reply.get('airline') or detail.get('airline','')});done=True
+    elif scope=='transfer' and reply.get('transfer_note'):
+        result,_=answer(result,scope,{'note':reply['transfer_note']});done=True
+    elif scope=='notes' and reply.get('note') is not None:
+        result,_=answer(result,scope,{'note':reply['note']});done=True
+    return result,done
+
+
+def question(summary,scope):
+    if scope=='route':
+        if not summary.get('origin'): return 'Where are you travelling from?'
+        if not summary.get('destination'): return 'Where would you like to go?'
+    return QUESTIONS.get(scope,'What would you like to change?')
 
 
 def context(summary):
@@ -86,7 +159,8 @@ def values(summary):
     journey=summary.get('journey',{})
     date_notes=('One-way travel; no return requested.',
         'Return/end date undecided; Sama to confirm any hotel stay and insurance dates before quoting.')
-    result['requirements']='\n'.join(line for line in str(result['requirements'] or '').splitlines() if line not in date_notes)
+    result['requirements']='\n'.join(line for line in str(result['requirements'] or '').splitlines()
+        if line not in date_notes and not line.startswith(('Hotel search preferences:','For Sama to verify:')))
     services=journey.get('services',[])
     if services: result['service_type']=service_type(services)
     if not result['title'] and result['destination']:
@@ -112,6 +186,10 @@ def values(summary):
         elif kind=='esim': lines.append('eSIM destination: '+detail['country'])
         elif kind=='insurance': lines.append('Insurance destination: '+detail['country']+'. Country of residence: '+detail['residence'])
     if journey.get('note'): lines.append('Note for Sama: '+journey['note'])
+    if journey.get('hotel_criteria'):
+        from .hotel_search import label
+        lines.append('Hotel search preferences: '+label(journey['hotel_criteria']))
+        lines.extend('For Sama to verify: '+note for note in journey['hotel_criteria'].get('unverified',[]))
     if lines: result['requirements']='\n'.join(dict.fromkeys(line for line in [*str(result['requirements'] or '').strip().splitlines(),*lines] if line))
     result['traveller_details']=''
     return result
@@ -139,6 +217,8 @@ def state(summary):
         'services':services,'completed':journey.get('completed',[]),'details':journey.get('details',{}),
         'passengers':journey.get('passengers',{}),'one_way':journey.get('one_way',False),'return_pending':journey.get('return_pending',False),
         'note':journey.get('note',''),'context':context(summary),'version':journey.get('version',0),
+        'hotel_criteria':journey.get('hotel_criteria',{}),'hotel_places':[{'id':p['id'],'name':p['name']} for p in journey.get('hotel_places',[])],
+        'hotel_feedback':journey.get('hotel_feedback',''),
         'can_one_way':not any(k in services for k in ('hotel','insurance'))}
 
 
@@ -150,6 +230,8 @@ def reset_options(summary,previous=None):
         party_changed=previous is None or str(previous.get('travellers'))!=str(summary.get('travellers')) or previous.get('journey',{}).get('passengers')!=journey.get('passengers')
         if destination_changed:
             for key in ('country','city_id','city_name'): shared.pop(key,None)
+            journey.pop('hotel_places',None)
+            for key in ('landmark','hotel_name','location_id'): journey.get('hotel_criteria',{}).pop(key,None)
         journey['context']=shared
         journey['details']={k:v for k,v in journey.get('details',{}).items()
             if k in ('flight','transfer') or (not destination_changed and (k!='hotel' or not party_changed or v.get('manual')))}
@@ -269,6 +351,9 @@ def answer(summary,step,data):
             if sum(r['adults']+len(r['childrenAges']) for r in clean)!=int(result.get('travellers') or 0):
                 raise ValidationError('Room guests must match your trip’s traveller count.')
             detail['rooms']=clean
+            if isinstance(data.get('criteria'),dict):
+                from .hotel_search import merge
+                journey['hotel_criteria']=merge(journey.get('hotel_criteria',{}),data['criteria'])
         if step=='insurance':
             detail['residence']=text(data.get('residence'),2)
             if not pycountry.countries.get(alpha_2=detail['residence']): raise ValidationError('Choose your country of residence.')
@@ -277,6 +362,9 @@ def answer(summary,step,data):
         for key in ('country','nationality','residence','city_id','city_name'):
             if detail.get(key): shared[key]=detail[key]
         label=SERVICES[step]+': '+(detail.get('city_name') or pycountry.countries.get(alpha_2=country).name)
+        if step=='hotel':
+            label+=' · '+'; '.join(f"Room {i+1}: {r['adults']} adults"+(' · children’s ages '+', '.join(map(str,r['childrenAges'])) if r['childrenAges'] else '') for i,r in enumerate(detail['rooms']))
+        if step=='hotel' and detail.get('preferences'): label+=' · '+detail['preferences']
     elif step=='transfer':
         details['transfer']={'note':text(data.get('note','Sama to confirm pickup and drop-off.'),1000)}
         if 'transfer' not in completed: completed.append('transfer')

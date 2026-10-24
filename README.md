@@ -8,6 +8,7 @@ An English B2B travel portal for Sama Tours. Separate Django application and Pos
 - **Hosting instructions and one-command updates:** [DEPLOY_PYTHONANYWHERE.md](DEPLOY_PYTHONANYWHERE.md).
 - **Permissions and product behavior:** [docs/OPERATING_GUIDE.md](docs/OPERATING_GUIDE.md).
 - **Integration and service details:** [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+- **Conversational intake and hotel filters:** [docs/CHAT_HOTEL_SEARCH.md](docs/CHAT_HOTEL_SEARCH.md).
 - **Live acceptance checks:** [docs/LIVE_TESTING.md](docs/LIVE_TESTING.md).
 - **Local demo accounts and screenshot walkthrough:** [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
 

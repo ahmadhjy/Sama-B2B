@@ -14,7 +14,7 @@ async function postJSON(url, data) {
   const response = await fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}, body:JSON.stringify(data)});
   let result;
   try { result = await response.json(); } catch (_) { throw new Error('Please refresh the page and sign in again if needed.'); }
-  if (!response.ok) throw new Error(result.error || 'This action could not be completed.');
+  if (!response.ok) { const error=new Error(result.error || 'This action could not be completed.');error.data=result;throw error; }
   return result;
 }
 document.querySelector('#menu-toggle')?.addEventListener('click', event => {

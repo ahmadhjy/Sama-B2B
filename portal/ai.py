@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from .models import AIBudget, AICall
+from .hotel_search import INTENT_SCHEMA
+from .concierge import REPLY_SCHEMA
 
 class AssistantUnavailable(Exception):
     pass
@@ -45,7 +47,24 @@ The application automatically displays the trip review and provider offer search
 For hotels, eSIM and travel insurance, direct users to the provider offer cards below. Do not use web search
 or your own knowledge to invent or price these products. Never claim a provider offer was found unless
 it appears in the saved conversation. Ask for missing trip dates/passenger count before searching.
-Birth dates, room occupancy and nationality are collected by the provider form, not by you.
+Birth dates are collected privately by the application and must never enter model context.
+The application presents choice chips inside the conversation. Typed answers belong in chat.
+For hotel searches, emit hotel_search when the user requests hotels, changes preferences, asks for
+different/more hotels, or resets filters. This triggers the actual supplier search; do not claim results
+before the application returns them. Use the supplier's regional locations for landmarks/districts,
+not just Taksim: airports, stations, neighbourhoods and points of interest are supported when mapped.
+Default 'near' means within 1 km straight-line; preserve a previously chosen radius unless changed.
+Use null to keep existing filters; empty string/array or 'any' clears that filter. Four stars and above
+means [4,5], breakfast means BB, room only RO, half board HB, full board FB, all inclusive AI.
+Keep other filters on follow-ups. Do not infer a hotel brand from a landmark or turn a question about
+an existing room into a new search. Put requests that cannot be filtered (quiet, sea view, pool, etc.)
+in unverified, explicitly for Sama to check. Never claim those attributes are guaranteed.
+hotel_search.more asks for additional distinct hotels with the same criteria; reset clears preferences.
+For chat intake, return guide_reply with explicitly stated facts from the latest reply. The active
+question and saved context are supplied by the application. Do not guess missing nationalities,
+room allocations, passenger ages or dates. Use ISO dates only when unambiguous; ask one brief
+clarification otherwise (for example 05/06 without an established date format). A duration in nights can be returned as nights. Unspecified passenger
+categories remain null unless the client clearly states they are all adults. Keep irrelevant fields null.
 When a client asks for available flights, timings, schedules or flight details, research online sources
 before answering. Prefer the airline's dated timetable or airport flight information, then reputable
 travel sources. Use the requested route and travel date; ask for missing route/date details first.
@@ -61,6 +80,7 @@ or ticket issuance is requested or performed by this assistant. Flight cards are
 Use web search for current flight claims and clearly cite sources. Public search does not prove
 live seat availability or a bookable price. Say when live availability is unknown. Sama sales verifies
 availability and sends the final quotation. Do not invent prices, dates or pretend to book anything.
+Never offer invented schedules, prices or live availability.
 You have no access to company records, approvals, payment data, or private packages.
 Explain the flow only when needed: describe trip -> choose provider offers -> Submit request to Sama -> Sama quotation
 -> all designated company approvers -> Sama confirms booking. You cannot submit, approve or change status.
@@ -117,13 +137,13 @@ def settle(call, response):
     budget.reserved-=call.reservation; budget.spent+=cost; budget.save()
     call.status='complete'; call.charged=cost; call.save()
 
-def generate(user, messages, summary=False):
+def generate(user, messages, summary=False, hotel_only=False):
     call=reserve(user)
     conversation=[]
     size=0
     # The final form must retain details from the beginning of the saved conversation.
     for item in reversed(messages[-40:] if summary else messages[-24:]):
-        details='\n'.join(f"{o.get('label','')}: {o.get('detail','')} (Source: {o.get('source_url','')})" for o in item.get('options',[]))
+        details='\n'.join(f"{o.get('label','')}: {o.get('detail','')} {json.dumps(o.get('attributes',[]))} {json.dumps(o.get('room_details',[]))} (Source: {o.get('source_url','')})" for o in item.get('options',[]) if not o.get('expired'))
         content=sanitize(item['content']+('\nPreviously shown options:\n'+details if details else ''),user)[:6000]
         size+=len(content)
         if size>(160000 if summary else 24000): break
@@ -140,11 +160,16 @@ def generate(user, messages, summary=False):
         payload['tools']=[{'type':'web_search','search_context_size':'low'}]
         # Require research for explicit flight enquiries and their short follow-ups.
         # Other travel intake stays conversational; the model can still search when needed.
-        recent_user_text=' '.join(item['content'] for item in conversation[-6:] if item['role']=='user')
-        if re.search(r'\b(flights?|airlines?|airfares?|flight\s+times?|schedules?|timings?)\b',recent_user_text,re.I):
+        recent_user_text=next((item['content'] for item in reversed(messages) if item['role']=='user' and not item['content'].startswith(('Application context:','Current trip details','Selected travel preferences','Saved selections (context):'))),'')
+        followup=re.fullmatch(r'(?:what about|and|on|for|instead)?\s*(?:\d{1,2}\s+\w+|\w+\s+\d{1,2}|\d{4}-\d{2}-\d{2})[?. ]*',recent_user_text,re.I)
+        earlier_flight=any(re.search(r'\b(flights?|schedules?|timings?)\b',item['content'],re.I) for item in messages[-6:] if item['role']=='user' and not item['content'].startswith(('Application context:','Current trip details','Saved selections (context):')))
+        if re.search(r'\b(flights?|airlines?|airfares?|flight\s+times?|schedules?|timings?)\b',recent_user_text,re.I) or (followup and earlier_flight):
             payload['tool_choice']='required'
         payload['max_tool_calls']=4
         payload['include']=['web_search_call.action.sources']
+        if hotel_only:
+            for key in ('tools','tool_choice','max_tool_calls','include'): payload.pop(key,None)
+            payload['instructions']+='\nInterpret only the supplied hotel preferences into hotel_search. Do not research flights, collect trip facts or provide offers. Return empty options and trip values, and null guide_reply.'
         trip_fields=['title','service_type','origin','destination','departure','return_date','travellers','budget','requirements']
         option_properties={key:{'type':'string'} for key in ['label','detail','source_url','currency']}
         option_properties.update(kind={'type':'string','enum':['flight']},
@@ -154,10 +179,11 @@ def generate(user, messages, summary=False):
         payload['text']={'format':{'type':'json_schema','name':'travel_reply','strict':True,'schema':{
             'type':'object','properties':{'content':{'type':'string'},'options':{'type':'array','items':{
                 'type':'object','properties':option_properties,'required':list(option_properties),'additionalProperties':False}},
+                'hotel_search':INTENT_SCHEMA,'guide_reply':REPLY_SCHEMA,
                 'trip':{'type':'object','properties':{key:{'type':'string'} for key in trip_fields},
                         'required':trip_fields,'additionalProperties':False}},
-            'required':['content','options','trip'],'additionalProperties':False}}}
-        payload['instructions']+='''\nFor a flights-and-hotel request, research both categories: check airline/airport schedules first, then hotel sources. Use up to four searches to cover both categories. Return a JSON object: content is the short conversational reply. options contains researched choices, up to four flights plus three hotels, each with kind, label, detail and exact source_url from the current search. Each flight card represents one distinct flight or round-trip itinerary; do not combine several alternative flights in one selectable card. Cite every option. Never offer invented schedules, prices or live availability. Flight detail includes dated outbound AND return flight numbers/times, airports, local time zones, day changes and stops when verified. Hotel detail includes area, room, stay dates/nights, breakfast/cancellation only when verified. Use stars only when sourced. Unknown numeric fields are null; currency is empty when price is unknown. price_min/price_max must both be supported by the cited source for the requested dates; never use remembered or generic rates as a dated estimate. price_basis=total only when the amount covers the full requested passenger party or hotel stay; per_person/per_night when the source gives that unit. Do not infer hotel room counts or multiply rates into totals. If no dated price is verified, still show a sourced schedule/hotel card with null prices. A general flight timetable must be explicitly labelled general in detail. Say briefly when exact dates or availability cannot be verified. Selection records a preference for Sama, never a reservation. Do not include personal identifiers.
+            'required':['content','options','trip','hotel_search','guide_reply'],'additionalProperties':False}}}
+        payload['instructions']+='''\nReturn a JSON object with a short content reply. options contains only sourced flight choices, at most four, each with an exact source_url from the current web search. Research flights only when requested or when flight options are the active step; never use public hotel prices. Each flight card represents one distinct itinerary. Include dated outbound/return flight numbers, times, airports, local time zones, day changes and stops only when verified. Unknown numeric values are null. price_basis=total only when the source covers the entire party. A general timetable must be labelled general. Never invent prices or availability. Hotel preferences belong in hotel_search and application-provided cards. Selection is a preference, never a reservation. Do not include personal identifiers.
 trip retains all basic details explicitly supplied throughout this trip conversation, using YYYY-MM-DD dates and a numeric-string total travellers. Unknown values are empty strings. service_type is flight, hotel, package, transfer or travel. requirements retains adult/child/infant breakdown, duration and preferences. Do not infer all passengers are adults, do not invent dates, and leave budget empty unless volunteered. Derive a return date only from an unambiguous departure plus number of nights. Do not include button instructions in trip fields. When route, dates or passengers change, discard incompatible old recommendations. Card selections are tracked separately; do not copy selected option labels, source links or prices into requirements.'''
     try:
         response=requests.post('https://api.openai.com/v1/responses',json=payload,
@@ -194,11 +220,13 @@ trip retains all basic details explicitly supplied throughout this trip conversa
             return {key:str(parsed.get(key,''))[:5000] for key in fields}
         except ValueError:
             raise AssistantUnavailable('Please complete the editable summary manually.')
-    options=[]; trip={}
+    options=[]; trip={};hotel_intent=None;guide_reply=None
     try:
         reply=json.loads(text)
         if isinstance(reply,dict) and isinstance(reply.get('content'),str):
             text=reply['content']
+            if isinstance(reply.get('hotel_search'),dict): hotel_intent=reply['hotel_search']
+            if isinstance(reply.get('guide_reply'),dict): guide_reply=reply['guide_reply']
             cited={s['url'] for s in sources}
             counts={'flight':0,'hotel':0,'travel':0}
             for option in reply.get('options',[])[:12]:
@@ -221,4 +249,5 @@ trip retains all basic details explicitly supplied throughout this trip conversa
     unique_sources={s['url']:s for s in sources}
     ordered=[unique_sources[o['source_url']] for o in options]
     ordered += [s for url,s in unique_sources.items() if url not in {o['source_url'] for o in options}]
-    return {'role':'assistant','content':text,'sources':ordered[:12],'options':options,'trip':trip}
+    return {'role':'assistant','content':text,'sources':ordered[:12],'options':options,'trip':trip,
+        'hotel_search':hotel_intent,'guide_reply':guide_reply}
