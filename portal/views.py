@@ -24,7 +24,7 @@ from django.views.decorators.http import require_POST, require_GET
 from . import workflow
 from . import providers
 from . import concierge
-from . import hotel_search, offer_search
+from . import hotel_search, offer_search, hotel_intake
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
 from .ai import AssistantUnavailable, generate
 from .chat import option_groups, preference_text, estimate, itinerary_changed, invalidate_options
@@ -322,7 +322,7 @@ def provider_cities(request,draft_id):
 @sensitive_post_parameters()
 def provider_offers(request,draft_id):
     if not can_create(request.user): raise PermissionDenied()
-    if not allow_attempt(f'provider-offers:{request.user.pk}',30,3600):
+    if not allow_attempt(f'provider-requests:{request.user.pk}',240,3600):
         return JsonResponse({'error':'Please wait before searching again.'},status=429)
     try:
         data=json.loads(request.body)
@@ -336,6 +336,38 @@ def provider_offers(request,draft_id):
         draft.ai_busy_until=timezone.now()+timedelta(seconds=600);draft.save(update_fields=['ai_busy_until'])
     try:
         if kind=='hotel':
+            if data.get('prepare') is True or isinstance(data.get('hotel_reply'),dict) or data.get('city_choice') is not None or isinstance(data.get('hotel_message'),str):
+                if 'hotel' not in draft.summary.get('journey',{}).get('services',[]): raise ValidationError('Add the hotel service to your trip first.')
+                content=data.get('hotel_message','').strip();model_reply=None;details=data.get('hotel_reply');intent=None
+                if isinstance(data.get('hotel_message'),str):
+                    if not 1<=len(content)<=3000: raise ValidationError('Please keep your reply under 3,000 characters.')
+                    field=data.get('hotel_field') if data.get('hotel_field') in ('city','check_in','check_out','party','nationality','room_count') else None
+                    details=hotel_intake.direct(draft.summary,content,field=field)
+                    if details is None:
+                        if not allow_attempt(f'ai:{request.user.pk}',30,3600): raise ValidationError('Please wait before asking the assistant again.')
+                        context={'hotel':hotel_intake.state(draft.summary),'trip':concierge.values(draft.summary),
+                            'preferences':draft.summary.get('journey',{}).get('hotel_criteria',{})}
+                        if field: context['editing_field']=field
+                        conversation=list(draft.messages)+[{'role':'user','content':'Application context: '+json.dumps(context)},
+                            {'role':'user','content':content}]
+                        model_reply=generate(request.user,conversation,hotel_mode=True)
+                        details=model_reply.get('hotel_details')
+                        intent=hotel_search.conversational_intent(context['preferences'],content,model_reply.get('hotel_search'))
+                with transaction.atomic():
+                    draft=Draft.objects.select_for_update().get(pk=draft.pk)
+                    if data.get('city_choice') is not None:
+                        hotel_intake.choose_city(draft.summary,data['city_choice'])
+                    changed=offer_search.hotel_changes(draft,details)
+                    if intent: changed=offer_search.refine(draft,intent) or changed
+                    if content: draft.messages.append({'role':'user','content':content,'guided':True})
+                    if data.get('hotel_reply'):
+                        draft.messages.append({'role':'user','content':str(next(iter(data['hotel_reply'].values())))[:160],'guided':True})
+                    if model_reply and not changed and not intent:
+                        reply={'role':'assistant','content':model_reply['content'],'guided':True}
+                        draft.messages.append(reply);draft.ai_busy_until=None;draft.save()
+                        return JsonResponse(dict(offer_search.snapshot(draft),message=reply))
+                    draft.save()
+                return JsonResponse(offer_search.prepare_hotel(draft))
             if isinstance(data.get('interpret'),str):
                 raw=data['interpret'].strip()
                 if not 1<=len(raw)<=1000: raise ValidationError('Please keep the hotel reply under 1,000 characters.')
@@ -502,7 +534,8 @@ def assistant(request,draft_id):
             conversation.append({'role':'user','content':'Saved selections (context): '+preference_text(selections)})
     try:
         answer=generate(request.user,conversation,summary=summary)
-        hotel_action=answer.pop('hotel_search',None) if not summary else None
+        hotel_action=hotel_search.conversational_intent(draft.summary.get('journey',{}).get('hotel_criteria',{}),content,answer.pop('hotel_search',None)) if not summary else None
+        hotel_details=answer.pop('hotel_details',None) if not summary else None
         guide_reply=answer.pop('guide_reply',None) if not summary else None
         search_hotel=False;hotel_update={}
         with transaction.atomic():
@@ -520,6 +553,10 @@ def assistant(request,draft_id):
                 answer['selections']=selections
                 answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
             else:
+                hotel_changed=False
+                if 'hotel' in draft.summary.get('journey',{}).get('services',[]):
+                    hotel_changed=offer_search.hotel_changes(draft,hotel_details)
+                    if hotel_changed or hotel_action: answer['trip']={}
                 if scope and guide_reply:
                     revised,accepted=concierge.chat_answer(draft.summary,scope,guide_reply)
                     if revised!=draft.summary:
@@ -542,12 +579,12 @@ def assistant(request,draft_id):
                         draft.summary['journey']=revised['journey']
                     draft.summary.update(answer['trip'])
                     concierge.reconcile_ai_trip(draft.summary)
-                if hotel_action and 'hotel' in draft.summary.get('journey',{}).get('services',[]):
-                    offer_search.refine(draft,hotel_action)
-                    criteria=draft.summary['journey']['hotel_criteria']
+                if (hotel_action or hotel_changed) and 'hotel' in draft.summary.get('journey',{}).get('services',[]):
+                    if hotel_action: offer_search.refine(draft,hotel_action)
+                    criteria=draft.summary['journey'].get('hotel_criteria',{})
                     hotel_update={key:criteria[key] for key in hotel_search.DEFAULTS
-                        if hotel_action.get(key) is not None or hotel_action.get('reset') is True}
-                    search_hotel=bool(offer_search.hotel_ready(draft.summary))
+                        if key in criteria and ((hotel_action or {}).get(key) is not None or (hotel_action or {}).get('reset') is True)}
+                    search_hotel=bool(hotel_changed or offer_search.hotel_ready(draft.summary))
                     if not search_hotel:
                         answer['content']='I’ve saved those hotel preferences. '+concierge.state(draft.summary)['question']
                 if not search_hotel:
@@ -558,6 +595,7 @@ def assistant(request,draft_id):
                 answer['stale_message_indexes']=[i for i,m in enumerate(draft.messages) if m.get('stale')]
             draft.ai_busy_until=timezone.now()+timedelta(seconds=600) if search_hotel else None;draft.save()
         if search_hotel:
+            if hotel_changed: return JsonResponse(offer_search.prepare_hotel(draft))
             return JsonResponse(dict(offer_search.run(draft,'hotel',{},more=hotel_action.get('more') is True),hotel_update=hotel_update))
         result={'summary':answer} if summary else {'message':answer,'hotel_update':hotel_update}
         result.update(offer_search.snapshot(draft))

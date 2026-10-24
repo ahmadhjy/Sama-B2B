@@ -3,8 +3,9 @@ from copy import deepcopy
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from . import concierge, hotel_search, providers
-from .chat import estimate
+from .chat import estimate, itinerary_changed, invalidate_options
 from .models import Draft, TravelRequest
+from .auth import allow_attempt
 
 
 def snapshot(draft):
@@ -34,13 +35,52 @@ def refine(draft,intent):
 
 
 def hotel_ready(trip):
+    from .hotel_intake import state
     detail=trip.get('journey',{}).get('details',{}).get('hotel',{})
     return (not detail.get('manual') and all(detail.get(k) for k in ('country','city_id','nationality','rooms'))
-        and trip.get('departure') and trip.get('return_date') and trip.get('travellers'))
+        and state(trip)['ready'] and trip.get('travellers'))
+
+
+def hotel_changes(draft,details):
+    from . import hotel_intake
+    if not isinstance(details,dict) or not any(value is not None and (key!='dates_pending' or value is True) for key,value in details.items()): return False
+    previous=deepcopy(draft.summary);revised=deepcopy(previous)
+    hotel_intake.apply(revised,details)
+    if itinerary_changed(previous,revised):
+        intake=deepcopy(revised['journey']['hotel_intake']);shared=deepcopy(revised['journey'].get('context',{}))
+        revised['selections']={};invalidate_options(draft.messages);concierge.reset_options(revised,previous)
+        revised['journey']['hotel_intake']=intake;revised['journey']['context']=shared
+    else:
+        expire(draft,'hotel');revised['selections']=draft.summary.get('selections',{})
+    revised['journey']['completed']=[k for k in revised['journey'].get('completed',[]) if k!='hotel']
+    draft.summary=revised
+    return True
+
+
+def prepare_hotel(draft):
+    from . import hotel_intake
+    original=deepcopy(draft.summary);revised=deepcopy(original)
+    hotel_intake.prepare(revised)
+    hotel=hotel_intake.state(revised)
+    with transaction.atomic():
+        draft=Draft.objects.select_for_update().get(pk=draft.pk)
+        if draft.summary!=original or draft.archived or TravelRequest.objects.filter(source_draft=draft).exists():
+            raise ValidationError('Your trip changed. Please refresh to continue.')
+        if hotel_search.query_fingerprint(original)!=hotel_search.query_fingerprint(revised): expire(draft,'hotel');revised['selections']=draft.summary.get('selections',{})
+        draft.summary=revised
+        if not hotel['ready']:
+            reply={'role':'assistant','content':hotel['question'],'guided':True}
+            if not draft.messages or draft.messages[-1].get('content')!=reply['content']: draft.messages.append(reply)
+            draft.ai_busy_until=None;draft.save()
+            return dict(snapshot(draft),message=reply)
+        draft.save()
+    return run(draft,'hotel',{})
 
 
 def run(draft,kind,data,more=False):
     """Caller holds the draft's busy lease. External work runs outside DB transactions."""
+    if not allow_attempt(f'provider-offers:{draft.user_id}',30,3600):
+        raise ValidationError('Please wait before searching again.')
     with transaction.atomic():
         draft=Draft.objects.select_for_update().get(pk=draft.pk)
         trip=deepcopy(draft.summary);stamp=providers.fingerprint(trip)
@@ -69,7 +109,7 @@ def run(draft,kind,data,more=False):
         if kind=='hotel':
             criteria=trip.get('journey',{}).get('hotel_criteria',{})
             description=hotel_search.label(criteria)
-            content=(f"{len(offers)} {'more ' if more else ''}hotel options · "+description+'.') if offers else ('No additional matching hotels were returned. ' if more else 'No matching hotels were returned. ')+'Search: '+description+'.'
+            content=(f"{len(offers)} {'more ' if more else ''}hotel option{'s' if len(offers)!=1 else ''} · "+description+'.') if offers else ('No additional matching hotels were returned. ' if more else 'No matching hotels were returned. ')+'Search: '+description+'.'
             if meta.get('point'): content+=' Distances are straight-line.'
             if meta.get('partial'): content+=' More matches may be available.'
             if criteria.get('unverified'): content+=' Sama still needs to verify: '+'; '.join(criteria['unverified'])+'.'

@@ -181,7 +181,8 @@ def values(summary):
             lines.append('Flights: '+detail['cabin']+'. Airline preference: '+(detail['airline'] or 'No preference')+'.')
         elif kind=='hotel':
             rooms='; '.join(f"Room {i+1}: {r['adults']} adults, children’s ages {', '.join(map(str,r['childrenAges'])) or 'none'}" for i,r in enumerate(detail['rooms']))
-            lines.append('Hotel: '+detail['city_name']+'. '+rooms+'. '+detail['preferences'])
+            stay=(' Stay: '+detail['check_in']+' to '+detail['check_out']+'.') if detail.get('check_in') and detail.get('check_out') else ''
+            lines.append('Hotel: '+detail['city_name']+'.'+stay+' '+rooms+'. '+detail['preferences'])
         elif kind=='transfer': lines.append('Transfer: '+detail['note'])
         elif kind=='esim': lines.append('eSIM destination: '+detail['country'])
         elif kind=='insurance': lines.append('Insurance destination: '+detail['country']+'. Country of residence: '+detail['residence'])
@@ -213,12 +214,19 @@ def state(summary):
             for kind in services:
                 if kind not in journey.get('details',{}): stage=kind;break
                 if kind not in journey.get('completed',[]): stage=kind if kind=='transfer' else kind+'_options';break
-    return {'step':stage,'question':QUESTIONS.get(stage,'Choose an option, or let Sama find it for you.'),
+    from .hotel_intake import state as hotel_state
+    hotel=hotel_state(summary) if 'hotel' in services else {}
+    if services==['hotel']:
+        stage=('ready' if journey.get('notes_done') else 'notes') if 'hotel' in journey.get('completed',[]) else 'hotel_options' if hotel.get('ready') else 'hotel'
+    elif stage in ('hotel','hotel_options'):
+        stage='hotel_options' if hotel.get('ready') else 'hotel'
+    return {'step':stage,'question':hotel['question'] if stage=='hotel' else QUESTIONS.get(stage,'Choose an option, or let Sama find it for you.'),
         'services':services,'completed':journey.get('completed',[]),'details':journey.get('details',{}),
         'passengers':journey.get('passengers',{}),'one_way':journey.get('one_way',False),'return_pending':journey.get('return_pending',False),
         'note':journey.get('note',''),'context':context(summary),'version':journey.get('version',0),
         'hotel_criteria':journey.get('hotel_criteria',{}),'hotel_places':[{'id':p['id'],'name':p['name']} for p in journey.get('hotel_places',[])],
         'hotel_feedback':journey.get('hotel_feedback',''),
+        'hotel':hotel,
         'can_one_way':not any(k in services for k in ('hotel','insurance'))}
 
 
@@ -232,6 +240,12 @@ def reset_options(summary,previous=None):
             for key in ('country','city_id','city_name'): shared.pop(key,None)
             journey.pop('hotel_places',None)
             for key in ('landmark','hotel_name','location_id'): journey.get('hotel_criteria',{}).pop(key,None)
+            for key in ('city_id','city_name','country','city_choices','lookup_query','city_query'): journey.get('hotel_intake',{}).pop(key,None)
+        if party_changed:
+            for key in ('rooms','room_count','adults_by_room','child_ages','child_rooms'): journey.get('hotel_intake',{}).pop(key,None)
+        if previous is not None:
+            for key,field in [('departure','check_in'),('return_date','check_out')]:
+                if previous.get(key)!=summary.get(key): journey.get('hotel_intake',{}).pop(field,None)
         journey['context']=shared
         journey['details']={k:v for k,v in journey.get('details',{}).items()
             if k in ('flight','transfer') or (not destination_changed and (k!='hotel' or not party_changed or v.get('manual')))}
@@ -351,6 +365,10 @@ def answer(summary,step,data):
             if sum(r['adults']+len(r['childrenAges']) for r in clean)!=int(result.get('travellers') or 0):
                 raise ValidationError('Room guests must match your trip’s traveller count.')
             detail['rooms']=clean
+            for key in ('check_in','check_out'):
+                if data.get(key): detail[key]=day(data[key]).isoformat()
+            if detail.get('check_in') and detail.get('check_out') and detail['check_out']<=detail['check_in']:
+                raise ValidationError('Check-out needs to be after check-in.')
             if isinstance(data.get('criteria'),dict):
                 from .hotel_search import merge
                 journey['hotel_criteria']=merge(journey.get('hotel_criteria',{}),data['criteria'])

@@ -164,9 +164,9 @@ class HotelChatTests(TestCase):
 
     @patch('portal.views.generate')
     def test_simple_typed_intake_advances_saved_guide_without_model_or_forms(self,generate):
-        self.signin(self.requester);draft=Draft.objects.create(user=self.requester,summary={'journey':{'services':['hotel']}})
+        self.signin(self.requester);draft=Draft.objects.create(user=self.requester,summary={'journey':{'services':['flight']}})
         for content,expected in [('Beirut','route'),('Paris','departure'),(str(timezone.localdate()+timedelta(days=30)),'return'),
-                ('5 nights','travellers'),('2 adults','hotel')]:
+                ('5 nights','travellers'),('2 adults','flight')]:
             result=self.chat(draft,content);self.assertEqual(result.status_code,200,result.content)
             self.assertEqual(result.json()['guide']['step'],expected)
         generate.assert_not_called()

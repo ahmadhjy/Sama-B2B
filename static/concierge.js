@@ -8,7 +8,7 @@
   const icons={flight:'✈',hotel:'▤',transfer:'↗',esim:'▣',insurance:'♧'};
   const countries=read('provider-countries'),connections=read('provider-available');
   let trip=read('draft-trip'),values=read('guide-values'),guide=read('guide-state'),selections=read('chat-selections');
-  let busy=false,override='',onAnswer=()=>{},quote={},wizard='',wizardKind='',submittedUrl='',reviewShown=false,offerHome=null,renderId=0,textAnswer=null;
+  let busy=false,override='',onAnswer=()=>{},quote={},wizard='',wizardKind='',submittedUrl='',reviewShown=false,offerHome=null,renderId=0,textAnswer=null,hotelEdit='';
   const searched=new Set();
   const card=$('#guide-card'),controls=$('#guide-controls'),actions=$('#guide-actions');
   const messages=$('#assistant-messages'),guideForm=$('#guide-form'),chatForm=$('#assistant-form');
@@ -75,10 +75,10 @@
       return true;
     }catch(error){setBusy(false);$('#guide-error').textContent=error.message;return false;}
   }
-  function edit(step){if(busy)return;dialog.close();override=step;wizard='';wizardKind='';quote={};render();scrollCard();}
+  function edit(step){if(busy)return;dialog.close();hotelEdit='';if((guide.services.length===1&&guide.services[0]==='hotel'||guide.step.startsWith('hotel'))&&['route','departure','return','travellers'].includes(step)){hotelEdit={route:'city',departure:'check_in',return:'check_out',travellers:'party'}[step];step='hotel';}override=step;wizard='';wizardKind='';quote={};render();scrollCard();}
   function memory(){
     const box=$('#trip-memory');box.replaceChildren();
-    const pieces=[['services',guide.services.map(k=>names[k]).join(' + ')],['route',trip.origin&&trip.destination?trip.origin+' → '+trip.destination:''],
+    const pieces=[['services',guide.services.map(k=>names[k]).join(' + ')],['route',trip.destination?(trip.origin?trip.origin+' → ':'')+trip.destination:''],
       ['departure',dateLabel(trip.departure)],['return',dateLabel(trip.return_date)|| (guide.one_way?'One way':guide.return_pending?'Return undecided':'')],['travellers',trip.travellers?trip.travellers+' traveller'+(Number(trip.travellers)===1?'':'s'):'']];
     pieces.forEach(([step,text])=>{if(text)box.append(button(text+' · Edit',()=>edit(step),'memory'));});box.hidden=!box.children.length;
     $('#open-request-review').hidden=guide.step!=='ready';
@@ -122,6 +122,7 @@
   }
   guideForm.addEventListener('submit',event=>{event.preventDefault();if(!busy&&guideForm.reportValidity())onAnswer();});
   function render(){
+    messages.querySelectorAll('.chat-message[hidden]').forEach(node=>node.hidden=false);
     if(offerHome){offerHome.parent.append(offerHome.group);offerHome=null;}
     const step=override||guide.step;renderId++;textAnswer=null;input.placeholder='Type a reply, or choose an option above…';controls.replaceChildren();actions.replaceChildren();onAnswer=()=>{};$('#guide-error').textContent='';$('#guide-description').textContent='';
     if(step!=='ready')reviewShown=false;
@@ -161,7 +162,9 @@
       actions.append(button('Any airline · Find flights',()=>flightReply(''),'primary'));typed('Preferred airline, or ask a question…',text=>{if(!/[?]/.test(text)&&text.split(/\s+/).length<=5&&!/\b(how|what|when|why|show|find|hotel|near|breakfast)\b/i.test(text))return flightReply(/^(any|no preference|any airline)( is fine)?$/i.test(text)?'':text);return chat(text);});skip('flight');
     }else if(step==='transfer'){
       $('#guide-step-label').textContent='TRANSFERS';$('#guide-question').textContent='Where should we pick you up and drop you off?';typed('For example: arrival airport to our hotel');actions.append(button('Airport to my hotel',()=>sendStep(step,{note:'Arrival airport to the hotel. Sama to confirm pickup details.'}),'primary'));skip('transfer');
-    }else if(['hotel','esim','insurance'].includes(step)){
+    }else if(step==='hotel'){
+      renderHotel();
+    }else if(['esim','insurance'].includes(step)){
       renderProvider(step);
     }else if(step.endsWith('_options')){
       renderOffers(step.replace('_options',''));
@@ -174,6 +177,8 @@
     if(override)actions.append(button('Back to current step',()=>{override='';wizard='';render();},'text'));
     memory();
     $('#guide-step-label').textContent='HelloSama assistant'+(phase===1?' · '+(names[step.replace('_options','')]||'Your services'):'');
+    const previous=card.previousElementSibling;
+    if(previous?.classList.contains('ai')&&!previous.querySelector('.option-group')&&previous.querySelector('.message-body')?.textContent===$('#guide-question').textContent)previous.hidden=true;
     if(!input.placeholder)input.placeholder='Type a reply, or choose an option above…';
   }
   const countryName=code=>countries.find(c=>c.code===code)?.name||code;
@@ -196,6 +201,27 @@
     catch(error){setBusy(false);$('#guide-error').textContent=error.message;}
   }
   function afterDestination(kind){return kind==='hotel'?(quote.nationality?'rooms':'nationality'):kind==='insurance'?(quote.residence?'birthdates':'residence'):'search';}
+  function renderHotel(){
+    const hotel=guide.hotel||{};$('#guide-question').textContent=hotelEdit?{city:'Which city would you like instead?',check_in:'What is your new check-in date?',check_out:'What is your new check-out date?',party:'Who will be staying?'}[hotelEdit]:hotel.ready?'What would you like to change about these hotels?':hotel.question||'Tell me about the hotel you need.';
+    $('#guide-description').textContent='';
+    typed(hotel.field==='nationality'?'Lead guest’s nationality…':hotel.field==='check_in'?'Check-in date…':hotel.field==='check_out'?'Check-out date or number of nights…':'Tell me here…',text=>hotelRequest({hotel_message:text},text));
+    if(!connections.hotel){$('#guide-question').textContent='Sama can find a hotel for you.';skip('hotel');return;}
+    (hotel.choices||[]).forEach(choice=>controls.append(button(choice.label,()=>hotelRequest(hotel.field==='city'?{city_choice:choice.value}:{hotel_reply:{[hotel.field]:choice.value}},choice.label),'reply-chip')));
+    if(hotel.field==='nationality'){
+      for(const code of ['LB','FR','TR','GB','US','AE'])controls.append(button(countryName(code),()=>hotelRequest({hotel_reply:{nationality:code}},countryName(code)),'reply-chip'));
+    }
+    if(hotel.ready)actions.append(button('Back to hotel choices',()=>{override='';render();scrollCard();},'text'));
+    else{
+      const key='hotel-prepare:'+guide.version;
+      if(!searched.has(key)){searched.add(key);const generation=renderId;setTimeout(()=>{if(generation===renderId&&!busy)hotelRequest({prepare:true});},0);}
+    }
+    skip('hotel');
+  }
+  async function hotelRequest(data,reply=''){
+    if(busy)return;setBusy(true,data.prepare?'Checking the hotel details…':'Checking your hotel request…');if(reply){if(card.previousElementSibling?.hidden){card.previousElementSibling.hidden=false;append({role:'user',content:reply,guided:true});}else recordReply(reply);}
+    try{const result=await postJSON(root.dataset.offersUrl,{kind:'hotel',...data,...(hotelEdit?{hotel_field:hotelEdit}:{})});if(result.message.options?.length||result.message.content!==result.guide?.question)append(result.message);apply(result);searched.add('hotel-prepare:'+guide.version);if(result.searched_kind==='hotel')searched.add('hotel:'+guide.version);override='';hotelEdit='';wizardKind='';wizard='';setBusy(false);render();scrollCard();}
+    catch(error){if(error.data)apply(error.data);searched.add('hotel-prepare:'+guide.version);searched.add('hotel:'+guide.version);setBusy(false);render();$('#guide-error').textContent=error.message;}
+  }
   function pendingDates(kind){
     if(!['hotel','insurance'].includes(kind)||trip.return_date)return false;
     $('#guide-question').textContent=kind==='hotel'?'I’ll leave your hotel dates open.':'I’ll leave your insurance dates open.';
@@ -234,40 +260,6 @@
       typed('Type the destination city here…',text=>{query=text;return lookup(true);});
       setTimeout(()=>{if(generation===renderId)lookup(!quote.city_id&&!quote.change_city);},0);
       actions.append(button('Choose country instead',()=>{wizard='country';render();},'text'));
-    }else if(wizard==='nationality'){
-      $('#guide-question').textContent='What is the lead traveller’s nationality?';$('#guide-description').textContent+=' The hotel needs this for eligible prices.';askCountry(quote.nationality,code=>{quote.nationality=code;return saveContext({field:'nationality',nationality:code},'rooms');});
-    }else if(wizard==='rooms'){
-      $('#guide-question').textContent='How many rooms would you like?';$('#guide-description').textContent=partyLabel(guide.passengers)+'. I’ll confirm who stays in each room.';
-      const party=guide.passengers;
-      const choose=count=>{recordReply(count+' room'+(count===1?'':'s'));quote.rooms=Array.from({length:count},()=>({adults:0,childrenAges:[]}));quote.assignAdult=0;quote.assignChild=0;wizard='room_guests';render();};
-      const minRooms=Math.max(1,Math.ceil(party.adults/9),Math.ceil((party.children+party.infants)/8)),maxRooms=Math.min(10,party.adults);
-      if(minRooms>maxRooms)$('#guide-description').textContent='This group needs a room allocation arranged by Sama. You can include the hotel service below.';
-      for(let count=minRooms;count<=maxRooms;count++)controls.append(button(count+' room'+(count===1?'':'s'),()=>choose(count),'reply-chip'));
-      typed('Tell me the number of rooms…',text=>{const words=['one','two','three','four','five','six','seven','eight','nine','ten'],match=text.match(/^(\d+)\s*(?:rooms?)?$/i),count=match?Number(match[1]):words.indexOf(text.trim().toLowerCase().replace(/ rooms?$/,''))+1;if(count>=minRooms&&count<=maxRooms)choose(count);else chat(text);});
-    }else if(wizard==='room_guests'){
-      const party=guide.passengers,rooms=quote.rooms;
-      if(rooms.length===1){rooms[0].adults=party.adults;quote.assignAdult=1;}
-      const remaining=party.adults-rooms.reduce((n,r)=>n+r.adults,0),index=quote.assignAdult||0;
-      if(index<rooms.length){
-        $('#guide-question').textContent='How many adults in room '+(index+1)+'?';
-        const max=Math.min(9,remaining-(rooms.length-index-1)),min=Math.max(1,remaining-9*(rooms.length-index-1));
-        const choose=count=>{recordReply(count+' adult'+(count===1?'':'s')+' in room '+(index+1));rooms[index].adults=count;quote.assignAdult=index+1;render();};
-        for(let count=min;count<=max;count++)controls.append(button(String(count),()=>choose(count),'reply-chip'));
-        typed('Number of adults in this room…',text=>{const count=Number(text.trim());if(Number.isInteger(count)&&count>=min&&count<=max)choose(count);else chat(text);});
-      }else if((quote.assignChild||0)<party.children+party.infants){
-        const child=quote.assignChild||0;
-        if(!quote.childRoom&&quote.childRoom!==0&&rooms.length===1)quote.childRoom=0;
-        if(quote.childRoom===undefined){$('#guide-question').textContent='Which room for child / infant '+(child+1)+'?';rooms.forEach((room,i)=>{if(room.childrenAges.length<8)controls.append(button('Room '+(i+1),()=>{recordReply('Room '+(i+1));quote.childRoom=i;render();},'reply-chip'));});}
-        else{
-          $('#guide-question').textContent='How old will child / infant '+(child+1)+' be at check-in?';
-          const choose=age=>{recordReply(age===0?'Under 1 year':age+' year'+(age===1?'':'s')+' old');rooms[quote.childRoom].childrenAges.push(age);delete quote.childRoom;quote.assignChild=child+1;render();};
-          const minAge=child<party.children?2:0,maxAge=child<party.children?11:1;
-          for(let age=minAge;age<=maxAge;age++)controls.append(button(age===0?'Under 1':String(age),()=>choose(age),'reply-chip'));
-          typed('Age at check-in…',text=>{const clean=text.trim().replace(/’/g,"'").replace(/^(?:he is|he's|she is|she's|age|aged|my son is|my daughter is)\s+/i,'').replace(/[.!]+$/,''),match=clean.match(/^(\d+)(?:\s*(?:years?(?: old)?))?$/i),age=match?Number(match[1]):-1;if(Number.isInteger(age)&&age>=minAge&&age<=maxAge)choose(age);else $('#guide-error').textContent='Choose an age from '+minAge+' to '+maxAge+', or change the traveller counts above.';});
-        }
-      }else{wizard='hotel_stars';setTimeout(render,0);}
-    }else if(wizard.startsWith('hotel_')){
-      hotelPreferences(kind);
     }else if(wizard==='residence'){
       $('#guide-question').textContent='Which country do the travellers live in?';askCountry(quote.residence,code=>{quote.residence=code;quote.birth_dates=[];return saveContext({field:'residence',residence:code},'birthdates');});
     }else if(wizard==='birthdates'){
@@ -283,36 +275,6 @@
     if(['residence','birthdates','search'].includes(wizard))actions.append(button('Change destination country',()=>{wizard='country';render();},'text'));
     skip(kind);
   }
-  function hotelPreferences(kind){
-    const c=quote.criteria||(quote.criteria={});
-    if(!quote.forcePreferences){
-      if(wizard==='hotel_stars'&&c.stars?.length)wizard='hotel_meals';
-      if(wizard==='hotel_meals'&&c.board_basis&&c.board_basis!=='any')wizard='hotel_cancel';
-      if(wizard==='hotel_cancel'&&c.refundability&&c.refundability!=='any')wizard='hotel_area';
-      if(wizard==='hotel_area'&&c.landmark){const generation=renderId;setTimeout(()=>{if(!busy&&generation===renderId)saveQuoteDetails(kind);},0);return;}
-    }
-    const choices=(question,items,key,nextStep)=>{$('#guide-question').textContent=question;items.forEach(([label,value])=>controls.append(button(label,()=>{recordReply(label);c[key]=value;wizard=nextStep;render();},'reply-chip')));};
-    if(wizard==='hotel_stars')choices('What hotel rating would you prefer?',[['Any rating',[]],['3 stars',[3]],['4 stars',[4]],['5 stars',[5]],['4 stars and above',[4,5]]],'stars','hotel_meals');
-    else if(wizard==='hotel_meals')choices('Which meal plan would you like?',[['No preference','any'],['Room only','RO'],['Breakfast included','BB'],['Half board','HB'],['Full board','FB'],['All inclusive','AI']],'board_basis','hotel_cancel');
-    else if(wizard==='hotel_cancel')choices('Do you need a refundable option?',[['Either is fine','any'],['Refundable only','refundable'],['Non-refundable only','non_refundable']],'refundability','hotel_area');
-    else{
-      $('#guide-question').textContent='Any preferred area, landmark or hotel?';$('#guide-description').textContent='Tell me a district, airport, station or landmark. “Near” means within 1 km unless you choose another distance.';
-      actions.append(button('Show hotels with these preferences',()=>saveQuoteDetails(kind),'primary'));
-      if(c.landmark)actions.append(button('Remove area preference',()=>{c.landmark='';quote.preferences='';saveQuoteDetails(kind);},'text'));
-    }
-    typed('For example: near the old town, breakfast included…',interpretHotel);
-  }
-  async function interpretHotel(text){
-    if(/^(why|how|what (?:does|is|are the differences))\b/i.test(text))return chat(text);
-    if(busy)return;setBusy(true,'Checking your hotel preferences…');
-    try{
-      const result=await postJSON(root.dataset.offersUrl,{kind:'hotel',interpret:text,filters:quote.criteria||{}});appendAnswers(result);apply(result);quote.criteria={...(quote.criteria||{}),...guide.hotel_criteria};
-      const field={hotel_stars:'stars',hotel_meals:'board_basis',hotel_cancel:'refundability'}[wizard];
-      if(field&&result.parsed_preferences?.includes(field))wizard={hotel_stars:'hotel_meals',hotel_meals:'hotel_cancel',hotel_cancel:'hotel_area'}[wizard];
-      else if(wizard==='hotel_area'){setBusy(false);await saveQuoteDetails('hotel');return;}
-      setBusy(false);render();scrollCard();
-    }catch(error){if(error.data)apply(error.data);setBusy(false);$('#guide-error').textContent=error.message;}
-  }
   async function saveQuoteDetails(kind,automatic=false){
     const dates=quote.birth_dates||[];const data={...quote};delete data.birth_dates;
     if(busy)return;setBusy(true);
@@ -322,13 +284,14 @@
     }catch(error){setBusy(false);$('#guide-error').textContent=error.message;}
   }
   function renderOffers(kind){
-    if(pendingDates(kind))return;
+    if(kind!=='hotel'&&pendingDates(kind))return;
     $('#guide-step-label').textContent=names[kind].toUpperCase();$('#guide-question').textContent='Choose your '+({flight:'flight',hotel:'hotel',esim:'eSIM',insurance:'travel cover'}[kind])+', or leave it to Sama.';
     $('#guide-description').textContent='Selecting an option adds it to your request.';
     if(kind==='insurance')$('#guide-description').textContent='Choose a plan preference. Sama confirms final cover and price. Nothing is booked.';
     if(kind==='hotel')$('#guide-description').textContent=guide.hotel_feedback||'Choose a hotel, or tell me what to change in chat.';
+    if(kind==='hotel')typed('Tell me what you’d like to change, or choose a hotel…',text=>hotelRequest({hotel_message:text},text));
     if(kind==='hotel'&&guide.hotel_places?.length){
-      $('#guide-question').textContent='Which location did you mean?';guide.hotel_places.forEach(p=>controls.append(button(p.name,()=>searchProvider(kind,[],{location_id:p.id}),'reply-chip')));typed('Choose a place above, or give me another landmark…');skip(kind);return;
+      $('#guide-question').textContent='Which location did you mean?';guide.hotel_places.forEach(p=>controls.append(button(p.name,()=>searchProvider(kind,[],{location_id:p.id}),'reply-chip')));typed('Choose a place above, or give me another landmark…',text=>hotelRequest({hotel_message:text},text));skip(kind);return;
     }
     if(selections[kind])actions.append(button('Continue with my selected option',()=>sendStep('complete_service',{service:kind}),'primary'));
     const choices=[...messages.querySelectorAll(`[name="travel-choice-${kind}"]`)].filter(n=>n.dataset.stale!=='true');
@@ -341,9 +304,17 @@
         else if(kind==='insurance'){wizardKind='insurance';quote={...guide.details.insurance,birth_dates:[]};wizard='birthdates';override='insurance';setTimeout(render,0);}
         else setTimeout(()=>searchProvider(kind),0);
       }else actions.append(button('Try the search again',()=>kind==='flight'?searchFlights():kind==='insurance'?edit('insurance'):searchProvider(kind),'primary'));
+      if(kind==='hotel'){
+        const criteria=guide.hotel_criteria||{};
+        if(criteria.hotel_name)actions.append(button('Show other hotels',()=>searchProvider(kind,[],{filters:{hotel_name:''}}),'reply-chip'));
+        if(criteria.landmark)actions.append(button('Search anywhere in '+(guide.context.city_name||trip.destination),()=>searchProvider(kind,[],{filters:{landmark:''}}),'reply-chip'));
+        if(criteria.board_basis&&criteria.board_basis!=='any')actions.append(button('Try any meal plan',()=>searchProvider(kind,[],{filters:{board_basis:'any'}}),'reply-chip'));
+        if(criteria.stars?.length)actions.append(button('Try any star rating',()=>searchProvider(kind,[],{filters:{stars:[]}}),'reply-chip'));
+        if(Object.keys(criteria).length)actions.append(button('Broaden all hotel preferences',()=>searchProvider(kind,[],{filters:{reset:true}}),'reply-chip'));
+      }
     }else{
       if(kind==='hotel'){
-        actions.append(button('More matching hotels',()=>searchProvider(kind,[],{more:true})),button('Change hotel preferences',()=>{override='hotel';wizardKind='hotel';quote={...(guide.context||{}),...guide.details.hotel,criteria:{...(guide.hotel_criteria||{})},forcePreferences:true};wizard='hotel_stars';render();}));
+        actions.append(button('More matching hotels',()=>searchProvider(kind,[],{more:true})),button('Change your search',()=>{override='hotel';render();input.focus();}));
       }else actions.append(button('Search again / change preferences',()=>edit(kind)));
     }
     skip(kind);
@@ -380,7 +351,7 @@
     if(busy||submittedUrl)return;
     if(guide.step!=='ready'){override='';render();scrollCard();return;}
     const facts=$('#review-facts');facts.replaceChildren();
-    [['Route',trip.origin+' → '+trip.destination,'route'],['Travel dates',dateLabel(trip.departure)+(trip.return_date?' → '+dateLabel(trip.return_date):guide.one_way?' · One way':' · Return/end date undecided'),'departure'],
+    [['Route',(trip.origin?trip.origin+' → ':'')+trip.destination,'route'],['Travel dates',dateLabel(trip.departure)+(trip.return_date?' → '+dateLabel(trip.return_date):guide.one_way?' · One way':' · Return/end date undecided'),'departure'],
       ['Travellers',partyLabel(guide.passengers),'travellers'],['Services',guide.services.map(k=>names[k]).join(', '),'services']].forEach(([label,value,step])=>{
       const row=el('div','review-fact'),copy=el('div');copy.append(el('small','',label),el('strong','',value));row.append(copy,button('Edit',()=>edit(step),'text'));facts.append(row);
       if(step==='departure')row.append(button('Edit end',()=>edit('return'),'text'));
@@ -389,6 +360,7 @@
       if(kind==='insurance'&&option)body.append(el('small','','Sama confirms final cover and price.'));
       if(kind==='flight'&&detail.cabin)body.append(el('small','',detail.cabin+(detail.airline?' · '+detail.airline:'')));
       if(kind==='hotel'&&detail.rooms)body.append(el('small','',detail.rooms.length+' room'+(detail.rooms.length===1?'':'s')+' · '+(detail.preferences||detail.city_name)));
+      if(kind==='hotel'&&detail.check_in&&detail.check_out)body.append(el('small','',dateLabel(detail.check_in)+' → '+dateLabel(detail.check_out)));
       if(kind==='hotel'&&option?.stars)body.append(el('small','',option.stars+' ★'+(option.room_details?.filter(r=>r.size).map(r=>' · '+r.size).join('')||'')));
       if(option?.price_min)body.append(el('small','',option.price_min+' '+option.currency+' · '+({per_unit:'one eSIM',per_person:'per traveller',per_night:'per night',total:'party / stay total'}[option.price_basis]||'estimate')));row.append(button('Edit',()=>edit(kind),'text'));offers.append(row);});
     const notes=$('#review-notes');notes.replaceChildren();if(guide.note)notes.append(el('small','','Your note'),el('p','',guide.note));

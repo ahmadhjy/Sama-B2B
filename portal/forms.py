@@ -146,6 +146,9 @@ class CompanyOwnerForm(forms.Form):
         return data
 
 class RequestForm(forms.ModelForm):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.fields['origin'].required=False
     service_type = forms.ChoiceField(required=False, choices=TravelRequest.Service.choices, label='What do you need?')
     def clean_service_type(self):
         return self.cleaned_data.get('service_type') or TravelRequest.Service.TRAVEL
@@ -164,6 +167,8 @@ class RequestForm(forms.ModelForm):
                       'traveller_details':'Your own passport is already in your profile. Add other travellers only when needed.'}
     def clean(self):
         data = super().clean()
+        if data.get('service_type')!='hotel' and not data.get('origin'):
+            self.add_error('origin','Tell us where you are travelling from.')
         departure, returning = data.get('departure'), data.get('return_date')
         if departure and departure < timezone.localdate():
             self.add_error('departure','Choose today or a future date.')

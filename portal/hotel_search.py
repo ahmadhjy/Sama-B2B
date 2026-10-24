@@ -134,7 +134,7 @@ def resolve_place(city_id,criteria):
     from . import providers as p
     target=criteria.get('landmark','')
     if not target: return None
-    if normalized(target) in ('centre','center','city centre','city center','downtown'):
+    if re.search(r'\b(?:city cent(?:re|er)|downtown)\b',normalized(target)) or normalized(target) in ('centre','center'):
         city=p.call('irix','GET',f'/api/mapping/v1/cities/{int(city_id)}')
         point=coordinates(city.get('geolocation'))
         if point: return dict(point,name=target,id=0)
@@ -156,6 +156,31 @@ def resolve_place(city_id,criteria):
     if len(candidates)==1: return candidates[0]
     if candidates: raise Clarification('Which place did you mean? Choose the location for your hotel search.',candidates[:8])
     raise Clarification(f'I couldn’t match “{target}” to a location in the hotel provider’s catalogue. Try a nearby district or another landmark name.')
+
+
+def conversational_intent(previous,text,intent):
+    """Ground new places in the client's words and honour explicit requests to broaden."""
+    clean=normalized(text);result={k:deepcopy(v) for k,v in (intent or {}).items() if v is not None and (k not in ('more','reset') or v is True)}
+    broad=re.search(r'\b(?:anything|any hotel|any hotels|whatever)\b.*\b(?:in|within|anywhere)\b',clean)
+    qualified=re.search(r'\b(?:with|near|close|stars?|breakfast|refundable|inclusive|pool|under|cheaper|less|at least|budget)\b|\b\d+\b',clean)
+    if (broad and not qualified) or clean in ('anything is fine','show anything','any hotel is fine'):
+        return {'reset':True}
+    if re.search(r'\b(?:anywhere|within the city|within city|any area|whole city|no area preference)\b',clean):
+        result['landmark']=''
+    if re.search(r'\bany hotels?\b',clean): result['hotel_name']=''
+    value=result.get('landmark')
+    if value and value!=previous.get('landmark'):
+        words=set(re.findall(r'\w+',normalized(value)))-{'square','the','in','city','centre','center'}
+        supplied=set(re.findall(r'\w+',clean))
+        central=bool(re.search(r'\b(?:central|centre|center|downtown)\b',clean))
+        if not words.intersection(supplied):
+            if central: result['landmark']='city centre'
+            else: result.pop('landmark',None)
+    name=result.get('hotel_name')
+    if name and name!=previous.get('hotel_name'):
+        words=set(re.findall(r'\w+',normalized(name)))-{'hotel','hotels','the','in'}
+        if not words.intersection(re.findall(r'\w+',clean)): result.pop('hotel_name',None)
+    return result or None
 
 
 def fetch(city_id,nationality,start,end,rooms,criteria,exclude=()):

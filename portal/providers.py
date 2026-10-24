@@ -164,8 +164,8 @@ def search(kind, trip, data):
         count=int(trip.get('travellers') or 0)
         if not 1<=count<=100: raise ValueError()
         if kind=='esim': return esim(country.alpha_3)
-        start=date.fromisoformat(trip.get('departure') or '')
-        end=date.fromisoformat(trip.get('return_date') or '')
+        start=date.fromisoformat((data.get('check_in') if kind=='hotel' else None) or trip.get('departure') or '')
+        end=date.fromisoformat((data.get('check_out') if kind=='hotel' else None) or trip.get('return_date') or '')
         if start<timezone.localdate() or end<=start: raise ValueError()
         if kind=='hotel':
             nationality=pycountry.countries.get(alpha_2=str(data.get('nationality','')).upper())
