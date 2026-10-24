@@ -252,7 +252,7 @@ def provider_offers(request,draft_id):
     except (ValueError,UnicodeDecodeError): return JsonResponse({'error':'Choose a service to search.'},status=400)
     kind=data['kind']
     with transaction.atomic():
-        draft=get_object_or_404(Draft.objects.select_for_update(),pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
+        draft=get_object_or_404(Draft.objects.select_for_update(of=('self',)),pk=draft_id,user=request.user,archived=False,travelrequest__isnull=True)
         if draft.ai_busy_until and draft.ai_busy_until>timezone.now():
             return JsonResponse({'error':'Please wait for the current search or reply.'},status=409)
         trip=dict(draft.summary)
