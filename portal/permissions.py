@@ -1,5 +1,9 @@
+from django.conf import settings
 from django.db.models import Q
 from .models import TravelRequest, User
+
+def ai_requests_coming_soon(user):
+    return user.is_authenticated and not user.is_sama and not settings.DEBUG
 
 def is_ceo(user):
     return user.is_authenticated and user.is_active and user.role == User.Role.CEO and user.company_id is None

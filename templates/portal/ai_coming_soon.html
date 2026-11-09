@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">YOUR CORPORATE PORTAL</span><h1>{{ page_title }}</h1></div></div>
+<section class="card empty-state">
+  <div class="empty-symbol" aria-hidden="true">✦</div>
+  <span class="eyebrow">COMING SOON</span>
+  <h2>Your AI travel assistant is coming soon</h2>
+  <p>We’re building a more personal way to plan trips and tailor your travel experience. AI travel requests aren’t available yet.</p>
+  {% if page_title != 'Home' %}<a class="button secondary" href="{% url 'dashboard' %}">Back to home</a>{% endif %}
+</section>
+{% endblock %}

@@ -35,7 +35,7 @@ from .forms import LoginForm, ProfileForm, TeamForm, CompanyOwnerForm, RequestFo
 from .models import (User, Company, TravelRequest, Quote, Approval, Attachment, Draft, Audit, Message,
     Notification, Delivery, AIBudget, AICall, WorkerState, PushSubscription, MailReview)
 from .notifications import safe_push_endpoint
-from .permissions import (is_ceo, can_create, can_finance, can_work, can_submit_quote, can_view_passport, can_attachment, visible_requests)
+from .permissions import (ai_requests_coming_soon, is_ceo, can_create, can_finance, can_work, can_submit_quote, can_view_passport, can_attachment, visible_requests)
 
 def flash_error(request, exc):
     messages.error(request,' '.join(exc.messages) if isinstance(exc,ValidationError) else str(exc))
@@ -71,6 +71,8 @@ def sign_out(request):
 
 @login_required
 def dashboard(request):
+    if ai_requests_coming_soon(request.user):
+        return render(request, 'portal/ai_coming_soon.html', {'page_title': 'Home'})
     qs=visible_requests(request.user)
     counts=dict(qs.values_list('status').annotate(total=Count('pk',distinct=True)))
     recent=list(qs[:6])
@@ -722,7 +724,7 @@ def quote_download(request,req_id,quote_id):
 @login_required
 def attachment_download(request,file_id):
     attachment=get_object_or_404(Attachment.objects.select_related('request','passport_owner'),pk=file_id)
-    if not can_attachment(request.user,attachment): raise Http404()
+    if (attachment.request_id and ai_requests_coming_soon(request.user)) or not can_attachment(request.user,attachment): raise Http404()
     try:
         with attachment.file.open('rb') as stream: data=cipher().decrypt(stream.read())
     except (FileNotFoundError,OSError): raise Http404()

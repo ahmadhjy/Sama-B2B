@@ -62,6 +62,30 @@ class PortalTests(TestCase):
     def signin(self,user):
         self.client.force_login(user,backend='portal.auth.LocalBackend')
 
+    @override_settings(DEBUG=False, AI_ENABLED=True, OPENAI_API_KEY='test-only')
+    @patch('portal.middleware.check_company', return_value=True)
+    @patch('portal.views.generate')
+    def test_customer_ai_requests_are_coming_soon_in_production(self, generate_mock, check_company_mock):
+        self.signin(self.owner)
+        draft = Draft.objects.create(user=self.owner)
+        for url in (reverse('dashboard'), reverse('new_request'), reverse('requests')+'?scope=mine',
+                    reverse('request_detail', args=[self.req.pk]), reverse('travel_overview')):
+            with self.subTest(url=url):
+                response = self.client.get(url, secure=True)
+                self.assertContains(response, 'Your AI travel assistant is coming soon')
+                self.assertNotContains(response, self.req.title)
+        for name, args in (('new_request', []), ('draft_new', []), ('assistant', [draft.pk]),
+                           ('draft_guide', [draft.pk]), ('provider_offers', [draft.pk]),
+                           ('request_message', [self.req.pk])):
+            with self.subTest(action=name):
+                self.assertEqual(self.client.post(reverse(name, args=args), secure=True).status_code, 403)
+        self.assertEqual(self.client.get(reverse('request_updates', args=[self.req.pk]), secure=True).status_code, 403)
+        self.assertEqual(Draft.objects.count(), 1)
+        generate_mock.assert_not_called()
+        self.assertEqual(self.client.get(reverse('team'), secure=True).status_code, 200)
+        self.signin(self.ceo)
+        self.assertContains(self.client.get(reverse('requests'), secure=True), self.req.title)
+
     def quote(self):
         if not self.req.assignee_id:
             workflow.claim_request(self.sales,self.req.pk);self.req.refresh_from_db()
