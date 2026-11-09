@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">TRAVEL SERVICES</span><h1>{{ page_title }}</h1><p>Search provider offers for your company.</p></div><a class="button secondary" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits available</a></div>
+<section class="card compact">
+{% if sandbox %}<p class="alert">Insurance is in test mode. Test policies provide no cover and use no real credits. Use fictional details.</p>{% endif %}
+{% if not connected %}<p>This provider is not connected. Please contact Sama.</p>{% else %}
+{% if kind != 'esim' %}
+<form method="get" class="filter-bar">
+<label for="service-count">{% if kind == 'hotel' %}Rooms{% else %}Travellers{% endif %}</label>
+<select name="count" id="service-count">{% for n in counts %}<option value="{{ n }}" {% if n == count %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+<button class="button secondary">Set count</button>
+</form>
+{% endif %}
+<form method="post" class="form-stack">{% csrf_token %}
+  {{ form.as_p }}
+  <button class="button primary">Search {{ page_title|lower }}</button>
+</form>
+{% endif %}
+</section>
+{% if offers %}
+<section class="card compact section-gap">
+<h2>Available offers</h2>
+{% for item in offers %}
+<article class="workflow-card section-gap">
+<h3>{{ item.offer.label }}</h3><p>{{ item.detail }}</p>
+{% if item.attributes %}<ul>{% for a in item.attributes %}<li>{{ a.label }}: {{ a.value }}</li>{% endfor %}</ul>{% endif %}
+{% if item.rooms %}<details><summary>Room details</summary>{% for room in item.rooms %}<p><strong>{{ room.name }}</strong> {{ room.size }} · {{ room.description }} {{ room.facilities }}</p>{% endfor %}</details>{% endif %}
+<p><strong>{{ item.offer.price|floatformat:2 }} {{ item.offer.currency }}</strong>
+{% if item.offer.sandbox %} · Test only, no credits charged{% elif item.offer.credits != None %} · {{ item.offer.credits|floatformat:2 }} credits{% endif %}</p>
+{% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review {% if item.offer.sandbox %}test policy{% else %}purchase{% endif %}</a>
+{% else %}<p class="muted">{% if item.offer.credits == None %}A credit conversion rate is unavailable. Contact Sama.{% else %}Online purchase is not enabled. Contact Sama.{% endif %}</p>{% endif %}
+</article>
+{% endfor %}
+</section>
+{% endif %}
+{% if previous_page or next_page %}<nav class="pagination" aria-label="Offer pages">{% if previous_page %}<a href="?{{ previous_page }}">← Previous</a>{% endif %}{% if next_page %}<a href="?{{ next_page }}">Next →</a>{% endif %}</nav>{% endif %}
+{% endblock %}

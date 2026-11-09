@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">TRAVEL SERVICES</span><h1>Company credits</h1><p>{% if company %}{{ company.name }} · {% endif %}1 credit equals 1 USD.</p></div></div>
+<section class="card compact"><h2>{{ balance|floatformat:2 }} credits available</h2><p>Sama records deposits after receiving payment outside this portal.</p>
+{% if form %}
+<form method="post" class="form-stack">{% csrf_token %}{{ form.as_p }}<button class="button primary">Record deposit</button></form>
+{% endif %}
+</section>
+<section class="card compact section-gap"><h2>Service orders</h2>
+<div class="table-wrap"><table><thead><tr><th>Offer</th><th>Credits</th><th>Status</th><th>Date</th></tr></thead><tbody>
+{% for order in orders %}<tr><td><a href="{% url 'service_order' order.pk %}">{{ order.offer.label }}</a>{% if order.offer.sandbox %} · Test{% endif %}</td><td>{{ order.offer.credits|floatformat:2 }}</td><td>{{ order.get_status_display }}{% if order.status == 'confirmed' and order.cancellation_requested_at %}<small>Cancellation requested</small>{% endif %}</td><td>{{ order.created_at|date:'d M Y H:i' }}</td></tr>{% empty %}<tr><td colspan="4">No orders yet.</td></tr>{% endfor %}
+</tbody></table></div></section>
+<section class="card compact section-gap"><h2>Credit activity</h2>
+<div class="table-wrap"><table><thead><tr><th>Activity</th><th>Credits</th><th>Date</th></tr></thead><tbody>
+{% for entry in entries %}<tr><td>{{ entry.get_kind_display }}{% if entry.order %} · <a href="{% url 'service_order' entry.order_id %}">View order</a>{% endif %}{% if company and entry.note %}<small>{{ entry.note }}</small>{% endif %}</td><td>{{ entry.amount|floatformat:2 }}</td><td>{{ entry.created_at|date:'d M Y H:i' }}</td></tr>{% empty %}<tr><td colspan="3">No credit activity yet.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

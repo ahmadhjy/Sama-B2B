@@ -55,7 +55,7 @@ def request(method, url, **kwargs):
     try:
         response=requests.request(method,url,timeout=kwargs.pop('timeout',(5,30)),allow_redirects=False,**kwargs)
         response.raise_for_status()
-        if response.status_code != 200: raise ValueError()
+        if not 200 <= response.status_code < 300: raise ValueError()
         data=response.json()
         if not isinstance(data,dict): raise ValueError()
         return data
@@ -64,17 +64,17 @@ def request(method, url, **kwargs):
         raise ProviderUnavailable('The provider could not return offers. Try again or send your request to Sama.') from None
 
 
-def session(provider):
+def session(provider, scope=None):
     prefix={'irix':'IRIX','monty':'MONTY_ESIM','swan':'SWAN_IMS'}[provider]
     username=getattr(settings,prefix+'_USERNAME');password=getattr(settings,prefix+'_PASSWORD')
     if not username or not password: raise ProviderUnavailable('This provider is not connected yet. Sama can quote it manually.')
     base=getattr(settings,prefix+'_API_BASE_URL').rstrip('/')
-    key='portal-provider:'+hashlib.sha256((provider+base+username+password).encode()).hexdigest()
+    key='portal-provider:'+hashlib.sha256((provider+base+username+password+(scope or '')).encode()).hexdigest()
     saved=cache.get(key)
     if saved: return base,saved
     if provider=='irix':
         saved=request('POST',base+'/oauth2/token',data={'grant_type':'client_credentials',
-            'scope':'read:mapping read:hotels-search'},auth=(username,password))
+            'scope':scope or 'read:mapping read:hotels-search'},auth=(username,password))
     else:
         saved=request('POST',base+('/Agent/login' if provider=='monty' else '/api/v5/login'),
                       json={'username':username,'password':password})
@@ -83,8 +83,8 @@ def session(provider):
     return base,saved
 
 
-def call(provider, method, path, **kwargs):
-    base,auth=session(provider)
+def call(provider, method, path, *, scope=None, **kwargs):
+    base,auth=session(provider,scope) if scope else session(provider)
     headers={'Accept':'application/json','Authorization':'Bearer '+auth['access_token']}
     if provider=='monty':
         headers={'Accept':'application/json','Access-Token':auth['access_token']}
@@ -208,7 +208,7 @@ def esim(country):
     return sorted(rows,key=lambda r:Decimal(r['price_min']))[:6]
 
 
-def insurance(country,residence,start,end,births):
+def insurance(country,residence,start,end,births, *, limit=6):
     data=call('swan','POST','/api/v5/travel/plans',json={'country':residence,
         'destinations':[{'country':country,'from_date':str(start),'till_date':str(end)}],
         'travellers':[{'birth_date':str(b)} for b in births]})
@@ -227,7 +227,7 @@ def insurance(country,residence,start,end,births):
                 total,plan.get('currency_code'),{'plan_id':plan.get('id'),'price_ids':[p['id'] for p in prices],'deductible':tier},
                 sandbox=insurance_is_test())
             if row: rows.append(row)
-    return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:6]
+    return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:limit]
 
 
 class HotelOffers(list):
@@ -235,7 +235,7 @@ class HotelOffers(list):
         super().__init__(rows);self.search_meta=meta
 
 
-def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=()):
+def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=(), *, checkout=False):
     from . import hotel_search
     nationalities=mapping('nationalities',iso=nationality)
     if not nationalities: raise ProviderUnavailable('The hotel provider does not recognise this nationality.')
@@ -290,14 +290,19 @@ def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=()):
                     'room_codes':selected,'srk':data.get('srk')},stars=stars,
                     attributes=[dict(label=key,value=value) for key,value in dict.fromkeys((a['label'],a['value']) for a in attributes)],room_details=room_details)
                 if row:
+                    if checkout:
+                        row['provider_reference'].update(results_token=(data.get('tokens') or {}).get('results'),
+                            package_token=package.get('packageToken'), room_tokens=[
+                                r.get('roomToken') for room in package.get('packageRooms') or []
+                                for r in room.get('roomReferences') or [] if r.get('selected') is True])
                     if km is not None: row['distance_km']=round(km,3)
                     hotel_rows.append(row)
-        rows.extend(sorted(hotel_rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:1 if meta else 2])
+        rows.extend(sorted(hotel_rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:12 if checkout else 1 if meta else 2])
     sort=(meta or {}).get('criteria',{}).get('sort')
     if sort=='distance': rows.sort(key=lambda r:(r.get('distance_km',float('inf')),r['currency'],Decimal(r['price_min'])))
     elif sort=='stars': rows.sort(key=lambda r:(-(r.get('stars') or 0),r['currency'],Decimal(r['price_min'])))
     elif sort!='recommended': rows.sort(key=lambda r:(r['currency'],Decimal(r['price_min'])))
-    rows=rows[:6]
+    rows=rows[:60 if checkout else 6]
     # Fetch descriptions only for the options we actually show. The results
     # token stays in memory and never enters saved offers or browser responses.
     token=(data.get('tokens') or {}).get('results');srk=data.get('srk')

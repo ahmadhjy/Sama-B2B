@@ -1,7 +1,20 @@
 from django.urls import path
 from . import views
-from . import client_views
+from . import client_views, service_views
 urlpatterns = [
+    path('services/review/',service_views.review_queue,name='service_review_queue'),
+    path('services/credits/',service_views.wallet,name='service_wallet'),
+    path('services/offer/<uuid:offer_id>/',service_views.checkout,name='service_checkout'),
+    path('services/order/<uuid:order_id>/',service_views.order_detail,name='service_order'),
+    path('services/order/<uuid:order_id>/refresh/',service_views.refresh,name='service_refresh'),
+    path('services/order/<uuid:order_id>/document/',service_views.document,name='service_document'),
+    path('services/order/<uuid:order_id>/resend/',service_views.resend,name='service_resend'),
+    path('services/order/<uuid:order_id>/cancellation/',service_views.request_cancellation,name='service_cancel'),
+    path('services/order/<uuid:order_id>/esim/<str:action>/',service_views.esim_options,name='service_esim_options'),
+    path('services/order/<uuid:order_id>/reconcile/',service_views.reconcile,name='service_reconcile'),
+    path('companies/<uuid:company_id>/credits/',service_views.admin_wallet,name='service_admin_wallet'),
+    path('services/<str:kind>/',service_views.catalog,name='service_catalog'),
+
     path('travel/',client_views.travel_overview,name='travel_overview'),
     path('travel/message/',client_views.travel_message,name='travel_message'),
     path('requests/<uuid:req_id>/export/',client_views.request_export,name='request_export'),

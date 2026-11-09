@@ -25,6 +25,7 @@ class Company(models.Model):
 class User(AbstractUser):
     class Role(models.TextChoices):
         OWNER = 'owner', 'Company administrator'
+        HR = 'hr', 'Human resources'
         REQUESTER = 'requester', 'Sales / requester'
         ACCOUNTANT = 'accountant', 'Company accountant'
         CEO = 'ceo', 'Sama CEO'
@@ -256,3 +257,58 @@ class RateLimit(models.Model):
     key = models.CharField(max_length=128, primary_key=True)
     attempts = models.PositiveIntegerField(default=0)
     expires = models.DateTimeField()
+
+class CreditWallet(models.Model):
+    company = models.OneToOneField(Company, on_delete=models.PROTECT, primary_key=True)
+    balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
+    class Meta:
+        constraints = [models.CheckConstraint(check=models.Q(balance__gte=0), name='credit_wallet_nonnegative')]
+
+
+class ServiceOffer(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.PROTECT)
+    actor = models.ForeignKey(User, on_delete=models.PROTECT)
+    kind = models.CharField(max_length=12)
+    label = models.CharField(max_length=160)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    credits = models.DecimalField(max_digits=12, decimal_places=2, null=True)
+    sandbox = models.BooleanField(default=False)
+    payload = EncryptedTextField()
+    expires = models.DateTimeField(db_index=True)
+
+
+class ServiceOrder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    offer = models.OneToOneField(ServiceOffer, on_delete=models.PROTECT)
+    status = models.CharField(max_length=16, choices=[
+        ('processing','Processing'), ('confirmed','Confirmed'), ('review','Needs provider verification'),
+        ('released','Credits returned'), ('cancelled','Cancelled by supplier'),
+    ], default='processing')
+    provider_reference = models.CharField(max_length=160, blank=True)
+    delivery = EncryptedTextField(blank=True)
+    cancellation_requested_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CreditEntry(models.Model):
+    wallet = models.ForeignKey(CreditWallet, on_delete=models.PROTECT, related_name='entries')
+    actor = models.ForeignKey(User, on_delete=models.PROTECT)
+    order = models.ForeignKey(ServiceOrder, on_delete=models.PROTECT, null=True, blank=True)
+    kind = models.CharField(max_length=12, choices=[('deposit','Deposit'),('purchase','Purchase'),('release','Release')])
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    deposit_id = models.UUIDField(unique=True, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['order','kind'], name='unique_credit_entry_per_order_action'),
+            models.CheckConstraint(check=(
+                models.Q(kind='deposit', order__isnull=True, amount__gt=0, deposit_id__isnull=False) |
+                models.Q(kind='purchase', order__isnull=False, amount__lt=0, deposit_id__isnull=True) |
+                models.Q(kind='release', order__isnull=False, amount__gt=0, deposit_id__isnull=True)
+            ), name='valid_credit_entry'),
+        ]

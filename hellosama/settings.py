@@ -140,3 +140,9 @@ SILENCED_SYSTEM_CHECKS = ['security.W005', 'security.W021']
 LOGGING = {'version': 1, 'disable_existing_loggers': False,
            'handlers': {'console': {'class': 'logging.StreamHandler'}},
            'root': {'handlers': ['console'], 'level': 'INFO'}}
+
+# Manual service checkout. Live writes are enabled individually after supplier access is verified.
+SERVICE_ESIM_CHECKOUT = flag('SERVICE_ESIM_CHECKOUT', False)
+SERVICE_HOTEL_CHECKOUT = flag('SERVICE_HOTEL_CHECKOUT', False)
+SERVICE_INSURANCE_CHECKOUT = flag('SERVICE_INSURANCE_CHECKOUT', False)
+SERVICE_CREDIT_USD_RATES = env('SERVICE_CREDIT_USD_RATES', '{}')

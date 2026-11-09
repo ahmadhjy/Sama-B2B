@@ -87,7 +87,7 @@ class TeamForm(forms.ModelForm):
         travel_profile_fields(self)
         self.fields['first_name'].required = self.fields['last_name'].required = True
         self.fields['password'].required = not self.instance.pk
-        client_roles = [User.Role.OWNER, User.Role.REQUESTER, User.Role.ACCOUNTANT]
+        client_roles = [User.Role.OWNER, User.Role.HR, User.Role.REQUESTER, User.Role.ACCOUNTANT]
         staff_roles = [User.Role.CEO, User.Role.SALES, User.Role.FINANCE]
         choices = staff_roles if actor and actor.is_sama and not self.instance.company_id else client_roles
         self.fields['role'].choices = [(v, User.Role(v).label) for v in choices]

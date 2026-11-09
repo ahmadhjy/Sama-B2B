@@ -10,6 +10,7 @@ from portal.mailbox import fetch_mail
 from portal.models import WorkerState, RateLimit
 from portal.notifications import process_deliveries, check_sms_statuses
 from portal.workflow import expire_quotes
+from portal.service_credits import purge_expired_offers
 
 class Command(BaseCommand):
     help='Process durable notifications, account synchronization, incoming email and quotation expiry.'
@@ -40,7 +41,7 @@ class Command(BaseCommand):
                 close_old_connections()
                 issues=[]
                 if time.monotonic()-last_sync>=60:
-                    tasks=[('quote_expiry',expire_quotes)]
+                    tasks=[('quote_expiry',expire_quotes),('service_offer_expiry',purge_expired_offers)]
                     if settings.SMS_ENABLED: tasks.append(('sms_reports',check_sms_statuses))
                     if settings.ACCOUNTING_ENABLED: tasks.append(('accounting_sync',sync_companies))
                     if settings.IMAP_ENABLED: tasks.append(('incoming_mail',fetch_mail))

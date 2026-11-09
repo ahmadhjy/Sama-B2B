@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">SERVICE ORDER</span><h1>{{ order.offer.label }}</h1><p>{{ order.pk }}</p></div></div>
+<section class="card compact">
+<h2>{{ order.get_status_display }}</h2>{% if summary.description %}<p>{{ summary.description }}</p>{% endif %}
+{% if order.offer.sandbox %}<p>Test policy · no valid cover and no credit charge.</p>{% endif %}
+<p>{{ order.offer.price|floatformat:2 }} {{ order.offer.currency }} · {{ order.offer.credits|floatformat:2 }} credits</p>
+{% if order.provider_reference %}<p>Provider reference: <strong>{{ order.provider_reference }}</strong></p>{% endif %}
+{% if order.status == 'review' or order.status == 'processing' %}
+<p>The supplier outcome needs verification. Do not place another order for the same service. Any credits deducted remain reserved until Sama verifies the outcome.</p>
+{% endif %}
+<div class="button-row">
+{% if order.status == 'confirmed' %}
+<a class="button primary" href="{% url 'service_document' order.pk %}">{% if order.offer.kind == 'esim' %}Download installation QR{% elif order.offer.kind == 'hotel' %}Download reservation document{% else %}Download policy{% endif %}</a>
+{% if order.offer.kind != 'hotel' %}<form method="post" action="{% url 'service_resend' order.pk %}">{% csrf_token %}<button class="button secondary">Resend to purchase email</button></form>{% endif %}
+{% endif %}
+{% if order.offer.kind == 'hotel' and order.status == 'review' %}<form method="post" action="{% url 'service_refresh' order.pk %}">{% csrf_token %}<button class="button secondary">Check reservation status</button></form>{% endif %}
+{% if can_use_services and order.status == 'confirmed' %}
+{% if order.offer.kind == 'esim' %}
+<form method="post" action="{% url 'service_esim_options' order.pk 'usage' %}">{% csrf_token %}<button class="button secondary">Check usage</button></form>
+<form method="post" action="{% url 'service_esim_options' order.pk 'topup' %}">{% csrf_token %}<button class="button secondary">Browse top-ups</button></form>
+{% endif %}
+{% if not order.cancellation_requested_at %}<form method="post" action="{% url 'service_cancel' order.pk %}">{% csrf_token %}<button class="button secondary">Request cancellation</button></form>{% endif %}
+{% endif %}
+{% if is_ceo %}
+{% if order.status == 'review' or order.status == 'processing' or order.status == 'confirmed' and order.cancellation_requested_at %}<a class="button secondary" href="{% url 'service_reconcile' order.pk %}">Reconcile order</a>{% endif %}
+<a class="button secondary" href="{% url 'service_admin_wallet' order.offer.company_id %}">Company credits</a>
+{% else %}<a class="button secondary" href="{% url 'service_wallet' %}">Company credits and orders</a>{% endif %}
+</div>
+</section>
+{% if order.status == 'confirmed' and order.cancellation_requested_at %}<p class="alert">Cancellation requested. The order remains confirmed until Sama verifies the supplier’s outcome.</p>{% endif %}
+{% if usage %}<section class="card compact section-gap"><h2>eSIM usage</h2>
+<p>Plan: {{ usage.plan_status|default:'Not reported' }} · Expires: {{ usage.bundle_expiry_date|default:'Not reported' }}</p>
+<p>{% if usage.unlimited %}Unlimited data{% else %}Remaining data: {{ usage.data_remaining|default_if_none:'Not reported' }} {{ usage.data_unit }}{% endif %}</p>
+{% if usage.minutes_remaining != None %}<p>Minutes remaining: {{ usage.minutes_remaining }}</p>{% endif %}
+{% if usage.sms_remaining != None %}<p>SMS remaining: {{ usage.sms_remaining }}</p>{% endif %}
+</section>{% endif %}
+{% if topups %}<section class="card compact section-gap"><h2>Compatible top-ups</h2>
+{% for item in topups %}<article class="workflow-card section-gap"><h3>{{ item.offer.label }}</h3><p>{{ item.detail }}</p>
+<p>{{ item.offer.price }} {{ item.offer.currency }}{% if item.offer.credits != None %} · {{ item.offer.credits }} credits{% endif %}</p>
+{% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review top-up</a>{% else %}<p>Online purchase unavailable. Contact Sama.</p>{% endif %}
+</article>{% endfor %}
+</section>{% endif %}
+{% endblock %}

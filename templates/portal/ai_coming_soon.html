@@ -8,4 +8,13 @@
   <p>We’re building a more personal way to plan trips and tailor your travel experience. AI travel requests aren’t available yet.</p>
   {% if page_title != 'Home' %}<a class="button secondary" href="{% url 'dashboard' %}">Back to home</a>{% endif %}
 </section>
+{% if can_use_services %}
+<section class="card compact section-gap">
+  <div class="card-heading"><div><h2>Travel services</h2><p>Search and choose services directly using your company credits.</p></div></div>
+  <div class="button-row"><a class="button primary" href="{% url 'service_catalog' 'hotel' %}">Find hotels</a>
+  <a class="button secondary" href="{% url 'service_catalog' 'esim' %}">Browse eSIM plans</a>
+  <a class="button secondary" href="{% url 'service_catalog' 'insurance' %}">Compare insurance</a>
+  <a class="button secondary" href="{% url 'service_wallet' %}">View company credits</a></div>
+</section>
+{% endif %}
 {% endblock %}

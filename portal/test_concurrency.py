@@ -56,3 +56,27 @@ class ConcurrencyTests(TransactionTestCase):
             except AssistantUnavailable:return 'limited'
         self.assertCountEqual(self.together(self.owner,self.requester,work),['reserved','limited'])
         budget=AIBudget.objects.get();self.assertLessEqual(budget.reserved+budget.spent,Decimal('20'))
+
+    def test_simultaneous_company_purchases_cannot_overspend(self):
+        from datetime import timedelta
+        from uuid import uuid4
+        from .models import ServiceOffer, ServiceOrder, CreditEntry
+        from . import service_credits as wallet
+
+        hr=self.user('hr-concurrency','hr',self.company)
+        wallet.deposit(self.ceo,self.company.pk,Decimal('40.00'),'Verified receipt',uuid4())
+        offers={actor.pk:ServiceOffer.objects.create(actor=actor,company=self.company,kind='esim',label='Test offer',
+            price=Decimal('25.00'),currency='USD',credits=Decimal('25.00'),expires=timezone.now()+timedelta(minutes=5))
+            for actor in (self.owner,hr)}
+
+        def work(actor):
+            try:
+                wallet.reserve(actor,offers[actor.pk].pk)
+                return 'reserved'
+            except ValidationError:
+                return 'insufficient'
+
+        self.assertCountEqual(self.together(self.owner,hr,work),['reserved','insufficient'])
+        self.assertEqual(wallet.wallet_balance(self.company.pk),Decimal('15.00'))
+        self.assertEqual(ServiceOrder.objects.count(),1)
+        self.assertEqual(CreditEntry.objects.filter(kind='purchase').count(),1)

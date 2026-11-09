@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">SAMA OPERATIONS</span><h1>Service review</h1><p>Check supplier outcomes and cancellation requests before adjusting credits.</p></div></div>
+<section class="card compact"><div class="table-wrap"><table>
+<thead><tr><th>Company</th><th>Service</th><th>Review reason</th><th>Created</th></tr></thead>
+<tbody>{% for order in page %}<tr><td>{{ order.offer.company.name }}</td>
+<td><a href="{% url 'service_order' order.pk %}">{{ order.offer.label }}</a></td>
+<td>{% if order.status == 'confirmed' %}Cancellation requested{% else %}{{ order.get_status_display }}{% endif %}</td>
+<td>{{ order.created_at|date:'d M Y H:i' }}</td></tr>{% empty %}<tr><td colspan="4">No orders need review.</td></tr>{% endfor %}</tbody>
+</table></div>{% include 'portal/pagination.html' %}</section>
+{% endblock %}

@@ -799,7 +799,7 @@ def team(request):
     if query: members=members.filter(Q(first_name__icontains=query)|Q(last_name__icontains=query)|Q(username__icontains=query)|Q(email__icontains=query)|Q(company__name__icontains=query))
     role=request.GET.get('role','')
     if role=='approver': members=members.filter(can_approve=True)
-    elif role in ('owner','requester','accountant'): members=members.filter(role=role)
+    elif role in ('owner','hr','requester','accountant'): members=members.filter(role=role)
     page=Paginator(members,25).get_page(request.GET.get('page'))
     return render(request,'portal/team.html',{'page_title':'People & access','members':page,'page':page,'team_counts':counts})
 

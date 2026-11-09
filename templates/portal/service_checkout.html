@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><a class="back-link" href="{% url 'service_catalog' offer.kind %}">← Back to search</a><h1>{{ offer.label }}</h1><p>Review the cost and fulfilment details before confirming.</p></div></div>
+<section class="card compact">
+<p><strong>{{ offer.price|floatformat:2 }} {{ offer.currency }}</strong> · {{ offer.credits|floatformat:2 }} credits · {{ balance|floatformat:2 }} credits available</p>
+{% if offer.sandbox %}<p class="alert">This creates a test policy with no valid cover. Use fictional details. Your credit balance is not charged.</p>{% endif %}
+{% if disclosures.terms %}<h2>Supplier terms</h2><ul>{% for term in disclosures.terms %}<li>{{ term.text|linebreaksbr }}{% if term.url %} <a href="{{ term.url }}" rel="noopener noreferrer" target="_blank">View supplier terms</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if disclosures.cancellation %}<h2>Cancellation terms</h2><ul>{% for term in disclosures.cancellation %}<li>{{ term.type|title }} from {{ term.date }}{% if term.charge %}: {{ term.charge.value }} {{ term.charge.currency }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if disclosures.taxes %}<h2>Taxes and fees</h2><ul>{% for tax in disclosures.taxes %}<li>{{ tax.name }}: {{ tax.amount }} {{ tax.currency }} {% if tax.isIncluded %}(included){% else %}(not included){% endif %} {{ tax.description }}</li>{% endfor %}</ul>{% endif %}
+{% if disclosures.remarks %}<details><summary>Hotel information and restrictions</summary>{% for item in disclosures.remarks %}{% for line in item.list %}<p>{{ line }}</p>{% endfor %}{% endfor %}</details>{% endif %}
+<form method="post" class="form-stack section-gap">{% csrf_token %}
+  {% if review_token %}<input type="hidden" name="review_token" value="{{ review_token }}">{% endif %}
+  {{ form.as_p }}
+  <button class="button primary">{% if offer.sandbox %}Issue test policy{% else %}Confirm and spend {{ offer.credits|floatformat:2 }} credits{% endif %}</button>
+</form>
+</section>
+{% endblock %}
