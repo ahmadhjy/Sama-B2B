@@ -44,7 +44,7 @@ class AccessMiddleware:
                 if not active or changed:
                     logout(request)
                     return redirect('login')
-            if not user.profile_complete and request.path not in ('/profile/', '/logout/'):
+            if request.path != '/profile/' and not ai_requests_coming_soon(user) and not user.profile_complete:
                 if request.path.startswith('/api/'):
                     return JsonResponse({'error': 'Complete your profile first.', 'profile_url': '/profile/'}, status=403)
                 return redirect('/profile/?complete=1')

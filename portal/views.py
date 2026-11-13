@@ -735,7 +735,9 @@ def attachment_download(request,file_id):
     return response
 
 @login_required
+@sensitive_post_parameters('passport_number')
 def profile(request):
+    completion=not ai_requests_coming_soon(request.user) and not request.user.profile_complete
     form=ProfileForm(request.POST or None,request.FILES or None,instance=request.user)
     if request.method=='POST' and form.is_valid():
         try:
@@ -745,10 +747,10 @@ def profile(request):
                 form.save()
                 if upload: save_attachment(upload,request.user,passport_owner=request.user)
                 Audit.objects.create(actor=request.user,action='profile_updated',target=request.user.username)
-            messages.success(request,'Your profile is complete and saved.')
+            messages.success(request,'Your profile was saved.')
             return redirect('dashboard')
         except ValidationError as exc: form.add_error('passport_copy',exc)
-    return render(request,'portal/profile.html',{'page_title':'Your profile','form':form,'completion':not request.user.profile_complete,'passport_files':request.user.passport_files.all()})
+    return render(request,'portal/profile.html',{'page_title':'Your profile','form':form,'completion':completion,'passport_files':request.user.passport_files.all()})
 
 @login_required
 @sensitive_post_parameters('old_password','new_password1','new_password2')

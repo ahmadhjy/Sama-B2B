@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from . import tests as fixtures, workflow
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, provision
 from .files import save_attachment
@@ -52,6 +53,37 @@ class CompanyFilesTests(TestCase):
     def test_sama_staff_do_not_need_passports(self):
         self.assertTrue(self.ceo.profile_complete)
         self.assertNotIn('passport_copy', ProfileForm(instance=self.ceo).fields)
+
+    @override_settings(DEBUG=False, ACCOUNTING_ENABLED=True,
+        IRIX_USERNAME='', MONTY_ESIM_USERNAME='', SWAN_IMS_USERNAME='')
+    def test_linked_owner_can_use_live_portal_without_passport_copy(self):
+        owner = provision(self.item())
+        owner.first_name, owner.last_name = 'Company', 'Owner'
+        owner.phone, owner.nationality = '+96170123456', 'Lebanon'
+        owner.passport_number = 'TEST123'
+        owner.passport_expiry = self.owner.passport_expiry
+        owner.save()
+        self.assertFalse(owner.profile_complete)
+        self.client.force_login(owner, backend='portal.auth.CompanyBackend')
+        session = self.client.session
+        session['accounting_version'] = self.item()['version']
+        session.save()
+        for url in (reverse('dashboard'), reverse('team'), reverse('service_wallet'),
+                    reverse('service_catalog', args=['hotel']), reverse('service_catalog', args=['esim']),
+                    reverse('service_catalog', args=['insurance'])):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url, secure=True).status_code, 200)
+        self.assertContains(self.client.get(reverse('new_request'), secure=True), 'Your AI travel assistant is coming soon')
+        self.assertEqual(self.client.post(reverse('new_request'), secure=True).status_code, 403)
+        response = self.client.get(reverse('profile')+'?complete=1', secure=True)
+        self.assertNotContains(response, 'Complete your profile')
+        self.assertFalse(response.context['form'].fields['passport_copy'].required)
+        response = self.client.post(reverse('profile'), {
+            'first_name': owner.first_name, 'last_name': owner.last_name, 'email': owner.email,
+            'passport_expiry': timezone.localdate().isoformat(),
+        }, secure=True)
+        self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
+        self.assertEqual(self.client.get(reverse('dashboard'), secure=True).status_code, 200)
 
     def test_library_keeps_messages_and_groups_files_quotes_and_passport(self):
         quote = self.quote()

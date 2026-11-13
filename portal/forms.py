@@ -5,6 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from .models import User, Quote, TravelRequest
 from .countries import COUNTRY_NAMES
+from .permissions import ai_requests_coming_soon
 
 class PassportDateWidget(forms.SelectDateWidget):
     def _parse_date_fmt(self):
@@ -55,10 +56,11 @@ class ProfileForm(forms.ModelForm):
         travel_profile_fields(self)
         for field in ['first_name','last_name','email']:
             self.fields[field].required = True
+        self.travel_profile_required = not self.instance.is_sama and not ai_requests_coming_soon(self.instance)
         if not self.instance.is_sama:
             for field in ['phone','passport_number','passport_expiry','nationality']:
-                self.fields[field].required = True
-            self.fields['passport_copy'].required = not self.instance.passport_files.exists()
+                self.fields[field].required = self.travel_profile_required
+            self.fields['passport_copy'].required = self.travel_profile_required and not self.instance.passport_files.exists()
         else:
             for field in ['passport_number','passport_expiry','nationality','passport_copy']:
                 del self.fields[field]
@@ -69,7 +71,7 @@ class ProfileForm(forms.ModelForm):
         return value
     def clean_passport_expiry(self):
         value = self.cleaned_data.get('passport_expiry')
-        if value and value <= timezone.localdate():
+        if self.travel_profile_required and value and value <= timezone.localdate():
             raise forms.ValidationError('Please enter an unexpired passport.')
         return value
 
