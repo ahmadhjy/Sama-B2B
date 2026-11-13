@@ -1,37 +1,85 @@
 {% extends 'base.html' %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=2"><script defer src="{% static 'services.js' %}?v=2"></script>{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">TRAVEL SERVICES</span><h1>{{ page_title }}</h1><p>Search provider offers for your company.</p></div><a class="button secondary" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits available</a></div>
-<section class="card compact">
-{% if sandbox %}<p class="alert">Insurance is in test mode. Test policies provide no cover and use no real credits. Use fictional details.</p>{% endif %}
-{% if not connected %}<p>This provider is not connected. Please contact Sama.</p>{% else %}
-{% if kind != 'esim' %}
-<form method="get" class="filter-bar">
-<label for="service-count">{% if kind == 'hotel' %}Rooms{% else %}Travellers{% endif %}</label>
-<select name="count" id="service-count">{% for n in counts %}<option value="{{ n }}" {% if n == count %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
-<button class="button secondary">Set count</button>
-</form>
-{% endif %}
-<form method="post" class="form-stack">{% csrf_token %}
-  {{ form.as_p }}
-  <button class="button primary">Search {{ page_title|lower }}</button>
-</form>
-{% endif %}
-</section>
-{% if offers %}
-<section class="card compact section-gap">
-<h2>Available offers</h2>
-{% for item in offers %}
-<article class="workflow-card section-gap">
-<h3>{{ item.offer.label }}</h3><p>{{ item.detail }}</p>
-{% if item.attributes %}<ul>{% for a in item.attributes %}<li>{{ a.label }}: {{ a.value }}</li>{% endfor %}</ul>{% endif %}
-{% if item.rooms %}<details><summary>Room details</summary>{% for room in item.rooms %}<p><strong>{{ room.name }}</strong> {{ room.size }} · {{ room.description }} {{ room.facilities }}</p>{% endfor %}</details>{% endif %}
-<p><strong>{{ item.offer.price|floatformat:2 }} {{ item.offer.currency }}</strong>
-{% if item.offer.sandbox %} · Test only, no credits charged{% elif item.offer.credits != None %} · {{ item.offer.credits|floatformat:2 }} credits{% endif %}</p>
-{% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review {% if item.offer.sandbox %}test policy{% else %}purchase{% endif %}</a>
-{% else %}<p class="muted">{% if item.offer.credits == None %}A credit conversion rate is unavailable. Contact Sama.{% else %}Online purchase is not enabled. Contact Sama.{% endif %}</p>{% endif %}
-</article>
-{% endfor %}
-</section>
-{% endif %}
-{% if previous_page or next_page %}<nav class="pagination" aria-label="Offer pages">{% if previous_page %}<a href="?{{ previous_page }}">← Previous</a>{% endif %}{% if next_page %}<a href="?{{ next_page }}">Next →</a>{% endif %}</nav>{% endif %}
+<div class="service-page service-{{ kind }}">
+  <nav class="service-nav" aria-label="Travel services">
+    <a href="{% url 'service_catalog' 'esim' %}" {% if kind == 'esim' %}aria-current="page"{% endif %}>eSIM</a>
+    <a href="{% url 'service_catalog' 'hotel' %}" {% if kind == 'hotel' %}aria-current="page"{% endif %}>Hotels</a>
+    <a href="{% url 'service_catalog' 'insurance' %}" {% if kind == 'insurance' %}aria-current="page"{% endif %}>Travel insurance</a>
+    <a class="service-wallet-link" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits available ↗</a>
+  </nav>
+  <header class="service-hero">
+    <div><span class="eyebrow">SAMA TRAVEL SERVICES</span>
+      {% if kind == 'esim' %}<h1>Stay connected abroad.</h1><p>Choose where you’re going and compare digital SIM plans by data, duration and price.</p>
+      {% elif kind == 'hotel' %}<h1>Find your next stay.</h1><p>Search rooms for your dates and compare meals, cancellation terms and prices.</p>
+      {% else %}<h1>Travel with peace of mind.</h1><p>Get travel insurance quotes for your destination and the people going with you.</p>{% endif %}
+    </div>
+    {% include 'portal/service_art.html' %}
+  </header>
+  {% if sandbox %}<p class="service-notice"><strong>Insurance test mode.</strong> Use fictional details. Test policies provide no cover and use no real credits.</p>{% endif %}
+  <div class="service-shop{% if offers %} has-results{% endif %}">
+  <section class="service-panel service-search-panel" id="service-search">
+    <h2>{% if kind == 'esim' %}Find an eSIM{% elif kind == 'hotel' %}Search hotels{% else %}Get an insurance quote{% endif %}</h2>
+    {% if not connected %}<p>This service is temporarily unavailable. Please contact Sama.</p>{% else %}
+    <form method="post" action="{% url 'service_catalog' kind %}" class="service-form" data-service-form="{{ kind }}">{% csrf_token %}{{ form.non_field_errors }}
+      {% if kind == 'esim' %}
+        {{ form.page }}
+        <div class="service-choices">{% include 'portal/field.html' with field=form.bundle_category %}</div>
+        <div class="service-fields">
+          <div data-coverage="country">{% include 'portal/field.html' with field=form.destination %}</div>
+          <div data-coverage="region">{% include 'portal/field.html' with field=form.region_code %}</div>
+          {% include 'portal/field.html' with field=form.sort_by %}
+        </div>
+      {% else %}
+        <div class="service-fields">
+          {% include 'portal/field.html' with field=form.destination %}
+          {% if kind == 'hotel' %}{% include 'portal/field.html' with field=form.city %}{% else %}{% include 'portal/field.html' with field=form.residence %}{% endif %}
+          {% include 'portal/field.html' with field=form.start %}
+          {% include 'portal/field.html' with field=form.end %}
+          {% if kind == 'hotel' %}{% include 'portal/field.html' with field=form.nationality %}{% endif %}
+        </div>
+        <div class="service-party-heading">
+          <div><h3>{% if kind == 'hotel' %}Rooms and guests{% else %}Who’s travelling?{% endif %}</h3><p>{% if kind == 'hotel' %}Include everyone staying in each room.{% else %}Age helps determine which policies are available.{% endif %}</p></div>
+          <div><label for="service-count">{% if kind == 'hotel' %}Rooms{% else %}Travellers{% endif %}</label>
+          <select name="count" id="service-count">{% for n in counts %}<option value="{{ n }}" {% if n == count %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></div>
+          <button class="button secondary" formnovalidate name="set_count" value="1" data-count-fallback>Update count</button>
+        </div>
+        <div class="service-party" data-service-party>{% for title, fields in groups %}
+          <fieldset class="service-group"><legend>{{ title }}</legend><div class="service-fields">{% for field in fields %}{% include 'portal/field.html' %}{% endfor %}</div></fieldset>
+        {% endfor %}</div>
+        {% if kind == 'hotel' %}
+        <details class="service-filters" {% if form.errors %}open{% endif %}><summary>Hotel preferences <small>Optional</small></summary>
+          <div class="service-fields">{% include 'portal/field.html' with field=form.hotel_name %}{% include 'portal/field.html' with field=form.landmark %}{% include 'portal/field.html' with field=form.radius %}{% include 'portal/field.html' with field=form.board %}{% include 'portal/field.html' with field=form.refundability %}{% include 'portal/field.html' with field=form.sort %}</div>
+          <div class="service-choices">{% include 'portal/field.html' with field=form.stars %}</div>
+        </details>
+        {% endif %}
+      {% endif %}
+      <div class="service-submit"><button class="button primary">{% if kind == 'esim' %}Find eSIM plans{% elif kind == 'hotel' %}Find available rooms{% else %}Compare insurance plans{% endif %} <span aria-hidden="true">→</span></button></div>
+    </form>
+    {% endif %}
+  </section>
+  {% if offers %}
+  <section class="service-results" id="service-results" tabindex="-1"><div class="service-results-heading"><h2>Available offers</h2><span>{{ offers|length }} on this page</span><a class="service-edit-search" href="#service-search">Edit search ↑</a></div>
+    <div class="service-offer-grid">
+    {% for item in offers %}
+      <article class="service-offer"><div class="service-offer-art">{% include 'portal/service_art.html' %}</div>
+        <div class="service-offer-body"><span class="service-tag">{% if kind == 'hotel' and item.stars %}{{ item.stars }}-star hotel{% else %}{{ page_title }}{% endif %}</span>
+        <h3>{{ item.offer.label }}</h3><p>{{ item.detail }}</p>
+        {% if item.attributes %}<dl>{% for a in item.attributes %}<div><dt>{{ a.label }}</dt><dd>{{ a.value }}</dd></div>{% endfor %}</dl>{% endif %}
+        {% if item.rooms %}<details><summary>Room details</summary>{% for room in item.rooms %}<p><strong>{{ room.name }}</strong> {{ room.size }} {{ room.description }} {{ room.facilities }}</p>{% endfor %}</details>{% endif %}</div>
+        <div class="service-offer-price">
+          <strong>{{ item.offer.price|floatformat:2 }} <small>{{ item.offer.currency }}</small></strong>
+          {% if item.offer.sandbox %}<span>Test only · no credits charged</span>{% elif item.offer.credits != None %}<span>{{ item.offer.credits|floatformat:2 }} credits</span>{% endif %}
+          {% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review {% if item.offer.sandbox %}test policy{% else %}offer{% endif %} →</a>
+          {% else %}<span>{% if item.offer.credits == None %}Credit price unavailable. Contact Sama.{% else %}Online purchase unavailable. Contact Sama.{% endif %}</span>{% endif %}
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+  </div>
+  {% if previous_page or next_page %}<nav class="pagination" aria-label="Offer pages">{% if previous_page %}<a href="?{{ previous_page }}">← Previous</a>{% endif %}{% if next_page %}<a href="?{{ next_page }}">Next →</a>{% endif %}</nav>{% endif %}
+</div>
 {% endblock %}

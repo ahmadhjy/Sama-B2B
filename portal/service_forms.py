@@ -39,12 +39,12 @@ class Dates(forms.Form):
 
 
 class HotelSearch(Dates):
-    city = forms.CharField(max_length=100)
+    city = forms.CharField(max_length=100, label='City', widget=forms.TextInput(attrs={'placeholder':'e.g. Istanbul'}))
     nationality = forms.ChoiceField(choices=COUNTRIES, label='Lead guest nationality')
     landmark = forms.CharField(max_length=120, required=False, label='Near a landmark (optional)')
     radius = forms.DecimalField(required=False, min_value=0.1, max_value=50, decimal_places=1, label='Distance in km')
     hotel_name = forms.CharField(required=False, max_length=120)
-    stars = forms.TypedMultipleChoiceField(choices=[(i,str(i)) for i in range(1,6)],coerce=int,required=False)
+    stars = forms.TypedMultipleChoiceField(choices=[(i,f'{i} star'+('s' if i!=1 else '')) for i in range(1,6)],coerce=int,required=False,widget=forms.CheckboxSelectMultiple)
     board = forms.ChoiceField(choices=[('any','Any meals'),('RO','Room only'),('BB','Breakfast'),
         ('HB','Half board'),('FB','Full board'),('AI','All inclusive'),('SC','Self catering')])
     refundability = forms.ChoiceField(choices=[('any','Any cancellation terms'),('refundable','Refundable'),
@@ -54,10 +54,16 @@ class HotelSearch(Dates):
 
     def __init__(self, *args, count=1, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['destination'].label='Hotel country'
+        self.fields['start'].label='Check-in'
+        self.fields['end'].label='Check-out'
+        self.fields['board'].required=self.fields['refundability'].required=self.fields['sort'].required=False
+        self.fields['radius'].help_text='Leave blank to search within 1 km of the landmark.'
         for i in range(count):
-            self.fields[f'adults_{i}'] = forms.IntegerField(min_value=1,max_value=9,initial=1,label=f'Room {i+1}: adults')
-            self.fields[f'ages_{i}'] = forms.CharField(required=False,max_length=24,label=f'Room {i+1}: children’s ages at check-in',
-                help_text='Separate ages with commas, including infants. Leave blank if there are no children.')
+            self.fields[f'adults_{i}'] = forms.IntegerField(min_value=1,max_value=9,initial=1,label='Adults')
+            self.fields[f'ages_{i}'] = forms.CharField(required=False,max_length=24,label='Children’s ages at check-in',
+                widget=forms.TextInput(attrs={'placeholder':'e.g. 4, 9'}),
+                help_text='Optional. Separate ages with commas. Use 0 for a baby under one.')
 
     def clean(self):
         data = super().clean()
@@ -82,8 +88,12 @@ class InsuranceSearch(Dates):
 
     def __init__(self, *args, count=1, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['destination'].label='Destination country'
+        self.fields['residence'].label='Country of residence'
+        self.fields['start'].label='Departure date'
+        self.fields['end'].label='Return date'
         for i in range(count):
-            self.fields[f'birth_{i}'] = date_field(label=f'Traveller {i+1}: date of birth')
+            self.fields[f'birth_{i}'] = date_field(label='Date of birth')
 
     def clean(self):
         data = super().clean()
@@ -95,17 +105,24 @@ class InsuranceSearch(Dates):
 
 
 class EsimSearch(forms.Form):
-    destination = forms.ChoiceField(required=False,choices=[('','Any destination')]+COUNTRIES)
-    bundle_category = forms.ChoiceField(choices=[('country','Country'),('region','Region'),('global','Global')])
+    destination = forms.ChoiceField(required=False,label='Destination country',choices=[('','Choose a country')]+COUNTRIES)
+    bundle_category = forms.ChoiceField(label='Coverage', choices=[('country','One country'),('region','One region'),('global','Worldwide')],initial='country',widget=forms.RadioSelect)
     region_code = forms.ChoiceField(required=False,label='Region')
-    bundle_name = forms.CharField(required=False,max_length=80,label='Plan name')
-    profile_type = forms.CharField(required=False,max_length=40,label='Provider profile type')
-    sort_by = forms.ChoiceField(choices=[('price_asc','Lowest price'),('price_desc','Highest price')])
+    sort_by = forms.ChoiceField(label='Sort plans', required=False, choices=[('price_asc','Lowest price'),('price_desc','Highest price')],initial='price_asc')
     page = forms.IntegerField(required=False,min_value=1,max_value=200,widget=forms.HiddenInput,initial=1)
 
     def __init__(self,*args,regions=(),**kwargs):
         super().__init__(*args,**kwargs)
-        self.fields['region_code'].choices=[('','Any region')]+list(regions)
+        self.fields['region_code'].choices=[('','Choose a region')]+list(regions)
+
+    def clean(self):
+        data=super().clean()
+        category=data.get('bundle_category')
+        if category=='country' and not data.get('destination'):
+            self.add_error('destination','Choose the country where you’ll use your eSIM.')
+        elif category=='region' and not data.get('region_code'):
+            self.add_error('region_code','Choose the region where you’ll use your eSIM.')
+        return data
 
 
 class PurchaseForm(forms.Form):

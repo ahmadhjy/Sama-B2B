@@ -1,0 +1,14 @@
+<svg class="service-art" viewBox="0 0 280 180" aria-hidden="true" fill="none">
+  <circle cx="144" cy="90" r="74" fill="currentColor" opacity=".09"/><circle cx="144" cy="90" r="86" stroke="currentColor" opacity=".28"/>
+  <path d="M33 67h36m-18-18v36m170 24h27m-13-13v26M72 145h22" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+  {% if kind == 'esim' %}
+  <rect x="111" y="24" width="67" height="131" rx="14" fill="#153453" stroke="currentColor" stroke-width="3"/>
+  <path d="M135 36h20m-16 107h12M128 78l16-15h18v45h-34zM129 88h32m-22-13v32m12-44v44" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M185 48q21 6 24 28m-20-38q29 7 32 38" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  {% elif kind == 'hotel' %}
+  <path d="M91 142V65l32-23h71v100M80 142h126M123 42v100m24 0v-31h23v31M137 60h13v13h-13zm29 0h13v13h-13zm-29 26h13v13h-13zm29 0h13v13h-13zM102 79h9m-9 19h9m-9 19h9" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  {% else %}
+  <path d="M144 37c17 13 34 17 51 18v34c0 28-19 48-51 62-32-14-51-34-51-62V55c17-1 34-5 51-18Z" fill="currentColor" fill-opacity=".16" stroke="currentColor" stroke-width="3"/>
+  <path d="m124 93 14 14 28-31" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  {% endif %}
+</svg>

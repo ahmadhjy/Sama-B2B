@@ -54,8 +54,11 @@ def count_value(raw, maximum):
 
 def search_rows(kind, data):
     if kind == 'esim':
-        query = {k:data[k] for k in ('bundle_category','region_code','bundle_name','profile_type','sort_by','page')}
+        query = {k:data[k] for k in ('bundle_category','region_code','sort_by','page')}
         query['page'] = query['page'] or 1
+        query['sort_by'] = query['sort_by'] or 'price_asc'
+        if query['bundle_category']!='region':
+            query.pop('region_code',None)
         if data['destination'] and query['bundle_category']=='country':
             query['country_code'] = forms.iso3(data['destination'])
         rows,total = suppliers.esim_catalog(query)
@@ -70,8 +73,8 @@ def search_rows(kind, data):
         suggestions = ', '.join(c['name'] for c in cities[:5])
         raise ValidationError('Enter the exact hotel city.'+(f' Provider matches: {suggestions}.' if suggestions else ' No matching city was found.'))
     filters = hotel_search.merge({}, {'landmark':data['landmark'],'radius_km':float(data['radius']) if data['radius'] is not None else None,
-        'hotel_name':data['hotel_name'],'stars':data['stars'],'board_basis':data['board'],
-        'refundability':data['refundability'],'sort':data['sort']})
+        'hotel_name':data['hotel_name'],'stars':data['stars'],'board_basis':data['board'] or 'any',
+        'refundability':data['refundability'] or 'any','sort':data['sort'] or 'price'})
     query = dict(start=str(data['start']),end=str(data['end']),rooms=data['rooms'])
     return providers.hotels(exact[0]['id'],data['nationality'],data['start'],data['end'],data['rooms'],
                             criteria=filters,checkout=True),query,0
@@ -89,7 +92,7 @@ def save_offers(user,kind,rows,query):
             sandbox=sandbox,expires=expiry,payload=json.dumps({'row':row,'search':query}))
         prepared.append(record)
         offers.append(dict(offer=record,detail=row['detail'],attributes=row.get('attributes',[]),
-            rooms=row.get('room_details',[]), purchasable=cost is not None and suppliers.enabled(kind,sandbox)))
+            rooms=row.get('room_details',[]),stars=row.get('stars'), purchasable=cost is not None and suppliers.enabled(kind,sandbox)))
     ServiceOffer.objects.bulk_create(prepared)
     return offers
 
@@ -101,9 +104,9 @@ def catalog(request, kind):
     customer(request.user)
     if kind not in SERVICES:
         raise Http404
-    count = count_value(request.GET.get('count'), 10 if kind=='hotel' else 20)
+    count = count_value((request.POST if request.method=='POST' else request.GET).get('count'), 10 if kind=='hotel' else 20)
     form_class = {'hotel':forms.HotelSearch,'esim':forms.EsimSearch,'insurance':forms.InsuranceSearch}[kind]
-    submitted = request.method=='POST' or (kind=='esim' and request.GET.get('browse')=='1')
+    submitted = (request.method=='POST' and 'set_count' not in request.POST) or (kind=='esim' and request.GET.get('browse')=='1')
     data = request.POST if request.method=='POST' else request.GET if submitted else None
     connected = providers.available()[kind]
     region_choices=[]
@@ -112,20 +115,25 @@ def catalog(request, kind):
             region_choices=suppliers.regions()
         except QUOTE_ERRORS:
             pass
-    form = form_class(data, **({'count':count} if kind!='esim' else {'regions':region_choices}))
+    initial = request.POST if request.method=='POST' and not submitted else None
+    form = form_class(data, initial=initial, **({'count':count} if kind!='esim' else {'regions':region_choices}))
     offers = []
     previous_page = next_page = None
     if submitted and connected and form.is_valid():
         try:
             limit(request.user,'search',60)
+            if kind=='esim' and request.method=='POST':
+                form.cleaned_data['page']=1
             rows, query, total = search_rows(kind,form.cleaned_data)
             offers = save_offers(request.user,kind,rows,query)
             if not offers:
                 messages.info(request,'No matching offers were returned. Try changing the search.')
             if kind=='esim':
                 page=query['page']
-                params=request.GET.copy() if request.method=='GET' else request.POST.copy()
-                params.pop('csrfmiddlewaretoken',None)
+                from django.http import QueryDict
+                params=QueryDict(mutable=True)
+                for key in ('destination','bundle_category','region_code','sort_by'):
+                    params[key]=form.cleaned_data[key]
                 params['browse']='1'
                 if page>1:
                     params['page']=page-1
@@ -135,8 +143,13 @@ def catalog(request, kind):
                     next_page=params.urlencode()
         except QUOTE_ERRORS as exc:
             form.add_error(None,error_text(exc))
+    groups = []
+    if kind=='hotel':
+        groups=[(f'Room {i+1}',[form[f'adults_{i}'],form[f'ages_{i}']]) for i in range(count)]
+    elif kind=='insurance':
+        groups=[(f'Traveller {i+1}',[form[f'birth_{i}']]) for i in range(count)]
     return render(request,'portal/service_catalog.html',dict(page_title=SERVICES[kind],kind=kind,
-        form=form,offers=offers,connected=connected,count=count,counts=range(1,11 if kind=='hotel' else 21),
+        form=form,groups=groups,offers=offers,connected=connected,count=count,counts=range(1,11 if kind=='hotel' else 21),
         previous_page=previous_page,next_page=next_page,
         balance=credits.wallet_balance(request.user.company_id),sandbox=kind=='insurance' and providers.insurance_is_test()))
 
@@ -234,8 +247,18 @@ def checkout(request, offer_id):
     except QUOTE_ERRORS as exc:
         messages.error(request,error_text(exc))
         return redirect('service_catalog',kind=offer.kind)
+    groups={}
+    contact=[]
+    for field in form.visible_fields():
+        parts=field.name.split('_')
+        if parts[0]=='traveller':
+            groups.setdefault(f'Traveller {int(parts[1])+1}',[]).append(field)
+        elif parts[0]=='room':
+            groups.setdefault(f'Room {int(parts[1])+1} · Guest {int(parts[2])+1}',[]).append(field)
+        elif field.name not in ('accept','test_only'):
+            contact.append(field)
     return render(request,'portal/service_checkout.html',dict(page_title='Review purchase',offer=offer,
-        form=form, disclosures=disclosures, review_token=review_token, balance=credits.wallet_balance(offer.company_id)))
+        form=form, contact=contact, checkout_groups=groups.items(), disclosures=disclosures, review_token=review_token, balance=credits.wallet_balance(offer.company_id)))
 
 
 def authorized_order(user, order_id):

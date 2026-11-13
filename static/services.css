@@ -1,0 +1,70 @@
+.service-page{max-width:1120px;margin-inline:auto;--service-accent:#bfe3ff}
+.service-hotel{--service-accent:#ffdf9e}
+.service-insurance{--service-accent:#b4eddb}
+.service-page [hidden]{display:none!important}
+.service-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.service-nav a{padding:7px 13px;border:1px solid #d9e3ec;border-radius:24px;background:#fff;font-weight:600}
+.service-nav a[aria-current=page]{background:#173b5d;color:white;border-color:#173b5d}
+.service-nav .service-wallet-link{margin-inline-start:auto}
+.service-hero{min-height:208px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:26px clamp(20px,4vw,52px);border-radius:20px;background:linear-gradient(118deg,#102944,#1c4668);color:#edf6ff;overflow:hidden;margin-bottom:22px}
+.service-hero h1{color:#fff;font-size:clamp(28px,4vw,46px);margin-bottom:10px}
+.service-hero .eyebrow,.service-art{color:var(--service-accent)}
+.service-hero p{max-width:45ch;margin:0;font-size:15px}
+.service-art{width:clamp(100px,24vw,245px);flex-shrink:0}
+.service-panel{background:#fff;border:1px solid #dfe8ef;border-radius:18px;padding:clamp(16px,3vw,30px);box-shadow:0 8px 24px #12345608}
+.service-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px 18px;align-items:start}
+.service-form .field{min-width:0;margin:0}
+.service-form .field-control input:not([type=radio],[type=checkbox]),.service-form .field-control select{width:100%;min-height:46px;background:#f7fafc;border-color:#cad9e6}
+.service-choices{margin:0 0 16px}
+.service-choices .field-control>div{display:flex;flex-wrap:wrap;gap:9px}
+.service-choices .field-control label{display:flex;align-items:center;gap:7px;padding:8px 12px;background:#f3f8fc;border:1px solid #cad9e6;border-radius:9px;cursor:pointer}
+.service-choices label:has(:checked){border-color:#28628b;background:#e4f1fb}
+.service-party-heading{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:22px 0 12px}
+.service-party-heading>div:first-child{flex:1 1 220px}
+.service-party-heading h3,.service-party-heading p{margin-bottom:0}
+.service-party-heading select{min-width:85px}
+.service-party,.service-form{min-width:0}
+.service-group{padding:12px 15px 15px;border:1px solid #dbe7ef;border-radius:12px;background:#fbfdff;margin:12px 0;min-width:0}
+.service-group legend{padding:0 6px;font-weight:650;color:#193e5e}
+.service-filters{margin-top:17px;border-top:1px solid #dfe8ef;padding-top:14px}
+.service-filters summary,.service-offer details summary{cursor:pointer;font-weight:650;color:#174d75}
+.service-filters summary small{margin-inline-start:8px;color:#586d80;font-weight:400}
+.service-filters .service-fields,.service-filters .service-choices{margin-top:13px}
+.service-submit{margin-top:19px}
+.service-submit button span{margin-inline-start:10px}
+.service-notice,.service-confirm{padding:12px 16px;border-radius:10px;background:#fff4dc;color:#584314;margin:14px 0}
+.service-confirm label{display:block;margin:5px 0}
+.service-results{margin-top:28px}
+.service-results-heading{display:flex;align-items:baseline;gap:12px}
+.service-results-heading span{color:#51687c}
+.service-offer-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,285px),1fr));gap:16px}
+.service-offer{background:#fff;border:1px solid #dbe6ef;border-radius:15px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.service-offer-body,.service-offer-price{padding:16px 18px;overflow-wrap:anywhere}
+.service-offer-body h3{margin:8px 0}
+.service-offer-body dl{margin:10px 0;font-size:13px}
+.service-offer-body dl div{display:grid;grid-template-columns:90px 1fr;gap:8px}
+.service-offer-body dt{font-weight:600}
+.service-offer-body dd{margin:0}
+.service-tag{display:inline-block;border-radius:20px;padding:3px 9px;background:#e8f2fa;color:#1a4f76;font-size:12px;font-weight:600}
+.service-offer-price{margin-top:auto;background:#f4f8fb;border-top:1px solid #dbe6ef;display:grid;gap:5px;justify-items:start}
+.service-offer-price strong{color:#163e64;font-size:23px;line-height:1.2}
+.service-offer-price span{color:#425b70;font-size:13px}
+@media(max-width:560px){.service-hero{min-height:155px;gap:7px}.service-art{width:85px}.service-hero p{font-size:13px}.service-nav .service-wallet-link{margin-inline-start:0}.service-nav a{font-size:12px;padding:5px 9px}.service-submit .button{width:100%}}
+
+.service-offer-art{height:90px;display:grid;place-items:center;background:linear-gradient(120deg,#e9f3fa,#dcebf6);color:#295f89}
+.service-hotel .service-offer-art{background:linear-gradient(120deg,#fff5df,#f6e3ba);color:#78552a}
+.service-insurance .service-offer-art{background:linear-gradient(120deg,#e7f6f1,#d1ebe2);color:#276b5a}
+.service-offer-art .service-art{width:114px;height:85px;color:inherit}
+.service-checkout-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(235px,.62fr);gap:18px;align-items:start}
+.service-summary{grid-column:2;grid-row:1;overflow-wrap:anywhere}
+.service-checkout-form{grid-column:1;grid-row:1}
+.service-checkout-form .section-gap{margin-top:0}
+.service-form .service-select-search{width:100%;margin-bottom:6px;min-height:38px}
+@media(min-width:1000px){.service-shop.has-results{display:grid;grid-template-columns:minmax(240px,285px) minmax(0,1fr);gap:20px;align-items:start}.has-results .service-results{margin-top:0}.has-results .service-search-panel{padding:17px}.has-results .service-fields{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){.service-checkout-grid{display:flex;flex-direction:column}.service-checkout-grid>section,.service-checkout-grid>aside{width:100%}}
+
+.service-choices .field-control input[type=radio],.service-choices .field-control input[type=checkbox],.service-confirm input[type=checkbox]{width:16px;height:16px;padding:0;margin:0;flex:none;accent-color:#235a89}
+.service-choices .field-control label{margin:0;white-space:nowrap}
+.service-results-heading{flex-wrap:wrap}
+.service-edit-search{margin-inline-start:auto;font-size:13px;font-weight:600}
+#service-results,#service-search{scroll-margin-top:85px}

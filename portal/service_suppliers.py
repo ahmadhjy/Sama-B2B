@@ -42,7 +42,7 @@ def esim_catalog(criteria):
         price = next((bundle[k] for k in fields if bundle.get(k) is not None), None)
         detail = ' · '.join(str(v) for v in [
             'Unlimited data' if bundle.get('unlimited') else f"{bundle.get('gprs_limit','')} {bundle.get('data_unit','MB')}",
-            f"{bundle.get('validity','?')} days", bundle.get('profile_type'), bundle.get('bundle_category'),
+            f"{bundle.get('validity','?')} days",
             'Calls and SMS' if bundle.get('supports_calls_sms') else 'Data only',
             'Top-up supported' if bundle.get('support_topup') else '',
         ] if v)
