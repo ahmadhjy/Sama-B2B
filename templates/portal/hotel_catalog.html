@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=2"><link rel="stylesheet" href="{% static 'stays.css' %}?v=2"><script defer src="{% static 'services.js' %}?v=3"></script><script defer src="{% static 'stays.js' %}?v=2"></script>{% endblock %}
+{% block content %}
+<div class="stays service-page">
+  <nav class="stay-nav" aria-label="Travel services"><a href="{% url 'service_catalog' 'hotel' %}" aria-current="page">Stays</a><a href="{% url 'service_catalog' 'esim' %}">eSIM</a><a href="{% url 'service_catalog' 'insurance' %}">Travel insurance</a><a class="stay-credits" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits ↗</a></nav>
+  <header class="stay-heading"><span class="eyebrow">SAMA STAYS</span><h1>Find your next stay</h1><p>Compare hotel rooms, meals and cancellation terms in one place.</p></header>
+  {% if connected %}
+  <form method="post" id="stay-search" class="stay-search service-form" data-service-form="hotel" data-destination-url="{% url 'hotel_destinations' %}">
+    {% csrf_token %}{{ form.city_choice }}{{ form.non_field_errors }}
+    <div class="stay-controls">
+      <div class="stay-destination">
+        <label for="id_city">Going to</label>
+        {{ form.city }}{{ form.city.errors }}
+        <div id="stay-suggestions" class="stay-suggestions" role="listbox" aria-label="Destinations" hidden></div>
+        <span class="stay-selected" data-selected-country></span>
+      </div>
+      {% include 'portal/field.html' with field=form.start %}
+      {% include 'portal/field.html' with field=form.end %}
+      <details class="stay-guests" {% if form.errors and not form.city.errors %}open{% endif %}>
+        <summary><span>Guests &amp; rooms</span><strong data-guest-summary>{{ count }} room{{ count|pluralize }} ▾</strong></summary>
+        <div class="stay-guest-panel">
+          <label for="service-count">Rooms</label>
+          <select name="count" id="service-count">{% for n in counts %}<option value="{{ n }}" {% if n == count %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+          <button class="button secondary" formnovalidate name="set_count" value="1" data-count-fallback>Update rooms</button>
+          <div data-service-party>{% for title, fields in groups %}<fieldset class="service-group"><legend>{{ title }}</legend><div class="service-fields">{% for field in fields %}{% include 'portal/field.html' %}{% endfor %}</div></fieldset>{% endfor %}</div>
+          <button type="button" class="button secondary" data-guest-done hidden>Done</button>
+        </div>
+      </details>
+      <button class="button primary stay-submit">Search hotels <span aria-hidden="true">→</span></button>
+    </div>
+    <div class="stay-secondary">
+      <button class="stay-manual-toggle" type="button" data-manual-toggle aria-controls="stay-country" aria-expanded="false" hidden>Choose country manually</button>
+      <div id="stay-country" data-manual-country>{% include 'portal/field.html' with field=form.destination %}</div>
+      {% include 'portal/field.html' with field=form.nationality %}
+      <details class="service-filters" {% if form.errors %}open{% endif %}>
+        <summary>Hotel preferences <small>Optional</small></summary>
+        <div class="service-fields">{% include 'portal/field.html' with field=form.hotel_name %}{% include 'portal/field.html' with field=form.landmark %}{% include 'portal/field.html' with field=form.radius %}{% include 'portal/field.html' with field=form.board %}{% include 'portal/field.html' with field=form.refundability %}{% include 'portal/field.html' with field=form.sort %}</div>
+        <div class="service-choices">{% include 'portal/field.html' with field=form.stars %}</div>
+      </details>
+    </div>
+  </form>
+  <dialog class="stay-loading" aria-labelledby="stay-loading-title"><div class="stay-loader"></div><h2 id="stay-loading-title">Checking available rooms</h2><p data-loading-place></p><p>We’re checking prices for your dates.</p></dialog>
+  {% else %}<p class="service-notice">Hotel search is temporarily unavailable. Please contact Sama.</p>{% endif %}
+  {% if offers %}
+  <div class="stay-results" id="stay-results" tabindex="-1">
+    <aside class="stay-trip">
+      {% if picked %}<img src="{% get_static_prefix %}places/{{ picked.asset }}.webp" alt="">{% endif %}
+      <div><small>Your stay</small><h2>{{ form.city.value }}</h2><p>{{ form.cleaned_data.start|date:'j M' }} – {{ form.cleaned_data.end|date:'j M Y' }}</p><p>{{ nights }} night{{ nights|pluralize }} · {{ guests }} guest{{ guests|pluralize }} · {{ count }} room{{ count|pluralize }}</p><a href="#stay-search">Edit trip ↑</a></div>
+    </aside>
+    <section><div class="stay-results-heading"><h2>Stays in {{ form.city.value }}</h2><p>{{ offers|length }} available room offer{{ offers|length|pluralize }} shown</p></div>
+    {% for item in offers %}<article class="stay-result">
+      <div class="stay-result-photo"><span>Photo unavailable</span>{% if item.photo %}<img src="{% url 'hotel_photo' item.photo %}" alt="{{ item.offer.label }}" loading="lazy" data-property-photo>{% endif %}</div>
+      <div class="stay-result-main"><h3>{{ item.offer.label }}</h3>{% if item.stars %}<span class="stay-stars">{{ item.stars }} ★</span>{% endif %}
+        {% if item.attributes %}<dl>{% for a in item.attributes %}<div><dt>{{ a.label }}</dt><dd>{{ a.value }}</dd></div>{% endfor %}</dl>{% else %}<p>{{ item.detail }}</p>{% endif %}
+        {% if item.rooms %}<details><summary>Room details</summary>{% for room in item.rooms %}<p>{{ room.name }} · {{ room.size }} {{ room.description }} {{ room.facilities }}</p>{% endfor %}</details>{% endif %}
+        <div class="stay-price"><div><small>Total for {{ nights }} night{{ nights|pluralize }}</small><strong>{{ item.offer.price|floatformat:2 }} <small>{{ item.offer.currency }}</small></strong>{% if item.offer.credits != None %}<span>{{ item.offer.credits|floatformat:2 }} credits</span>{% endif %}</div>
+        {% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review room →</a>{% else %}<span>Contact Sama to book</span>{% endif %}</div>
+      </div>
+    </article>{% endfor %}</section>
+  </div>
+  {% else %}
+  <section class="stay-explore"><div class="stay-section-heading"><span class="eyebrow">EXPLORE BY CITY</span><h2>Popular destinations</h2><p>Pick a city to start your search.</p></div>
+  <div class="stay-places">{% for place in destinations %}
+    <a href="?city={{ place.city|urlencode }}&amp;country={{ place.country }}" data-featured-city="{{ place.city }}" data-country="{{ place.country }}" data-label="{{ place.label }}">
+      <img src="{% get_static_prefix %}places/{{ place.asset }}.webp" alt="" width="440" height="380" loading="lazy">
+      <span><small>{{ place.label }}</small><strong>{{ place.city }}</strong></span><b aria-hidden="true">↗</b>
+    </a>
+  {% endfor %}</div>
+  <details class="stay-attribution"><summary>Destination photo credits</summary>Photos resized and cropped in the layout:
+  <a href="https://commons.wikimedia.org/wiki/File:Eiffel_tower_from_trocadero.jpg">Paris · NonOmnisMoriar</a> and
+  <a href="https://commons.wikimedia.org/wiki/File:Colosseum_in_Rome,_Italy_-_April_2007.jpg">Rome · David Iliff</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>);
+  <a href="https://commons.wikimedia.org/wiki/File:Ortak%C3%B6y_Mosque.jpg">Istanbul · Vince Millett</a> (<a href="https://creativecommons.org/licenses/by/2.0/">CC BY 2.0</a>);
+  <a href="https://commons.wikimedia.org/wiki/File:Palace_of_Westminster_from_the_dome_on_Methodist_Central_Hall.jpg">London · Colin / Wikimedia Commons</a> (<a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>).
+  </details>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

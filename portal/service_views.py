@@ -11,7 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.debug import sensitive_post_parameters
@@ -67,7 +67,16 @@ def search_rows(kind, data):
         query = dict(destination=forms.iso3(data['destination']), residence=forms.iso3(data['residence']),
                      start=str(data['start']),end=str(data['end']),births=[str(b) for b in data['births']])
         return suppliers.insurance_quotes(query),query,0
-    cities = providers.hotel_cities(data['city'],data['destination'])
+    if data.get('city_choice'):
+        try:
+            chosen=signing.loads(data['city_choice'],salt='hotel-city',max_age=86400)
+        except signing.BadSignature:
+            raise ValidationError('Choose your destination from the suggestions again.') from None
+        if (chosen['name'],chosen['country']) != (data['city'],data['destination']):
+            raise ValidationError('Choose your destination from the suggestions.')
+        cities=[dict(chosen,exact=True)]
+    else:
+        cities=providers.hotel_cities(data['city'],data['destination'])
     exact = [c for c in cities if c['exact']]
     if len(exact)!=1:
         suggestions = ', '.join(c['name'] for c in cities[:5])
@@ -92,7 +101,10 @@ def save_offers(user,kind,rows,query):
             sandbox=sandbox,expires=expiry,payload=json.dumps({'row':row,'search':query}))
         prepared.append(record)
         offers.append(dict(offer=record,detail=row['detail'],attributes=row.get('attributes',[]),
-            rooms=row.get('room_details',[]),stars=row.get('stars'), purchasable=cost is not None and suppliers.enabled(kind,sandbox)))
+            rooms=row.get('room_details',[]),photo=signing.dumps(
+                {'hotel':row['provider_reference']['hotel_index'],'company':str(user.company_id)},salt='hotel-photo')
+                if kind=='hotel' and str(row.get('provider_reference',{}).get('hotel_index','')).isdigit() else '',
+            stars=row.get('stars'), purchasable=cost is not None and suppliers.enabled(kind,sandbox)))
     ServiceOffer.objects.bulk_create(prepared)
     return offers
 
@@ -107,7 +119,7 @@ def catalog(request, kind):
     count = count_value((request.POST if request.method=='POST' else request.GET).get('count'), 10 if kind=='hotel' else 20)
     form_class = {'hotel':forms.HotelSearch,'esim':forms.EsimSearch,'insurance':forms.InsuranceSearch}[kind]
     submitted = (request.method=='POST' and 'set_count' not in request.POST) or (kind=='esim' and request.GET.get('browse')=='1')
-    data = request.POST if request.method=='POST' else request.GET if submitted else None
+    data = request.POST if request.method=='POST' and submitted else request.GET if submitted else None
     connected = providers.available()[kind]
     region_choices=[]
     if kind=='esim' and connected:
@@ -115,7 +127,11 @@ def catalog(request, kind):
             region_choices=suppliers.regions()
         except QUOTE_ERRORS:
             pass
-    initial = request.POST if request.method=='POST' and not submitted else None
+    initial = request.POST.dict() if request.method=='POST' and not submitted else None
+    if initial is not None and kind=='hotel':
+        initial['stars']=request.POST.getlist('stars')
+    if kind=='hotel' and request.method=='GET':
+        initial={'city':request.GET.get('city','')[:100],'destination':request.GET.get('country','')[:2]}
     form = form_class(data, initial=initial, **({'count':count} if kind!='esim' else {'regions':region_choices}))
     offers = []
     previous_page = next_page = None
@@ -148,6 +164,14 @@ def catalog(request, kind):
         groups=[(f'Room {i+1}',[form[f'adults_{i}'],form[f'ages_{i}']]) for i in range(count)]
     elif kind=='insurance':
         groups=[(f'Traveller {i+1}',[form[f'birth_{i}']]) for i in range(count)]
+    if kind=='hotel':
+        raw=request.POST if request.method=='POST' else {}
+        picked=next((place for place in HOTEL_DESTINATIONS if place['city']==raw.get('city') and place['country']==raw.get('destination')),None)
+        guests=sum(r['adults']+len(r['childrenAges']) for r in form.cleaned_data.get('rooms',[]) if r['adults']) if offers else 0
+        return render(request,'portal/hotel_catalog.html',dict(page_title='Hotels',form=form,groups=groups,
+            offers=offers,connected=connected,count=count,counts=range(1,11),balance=credits.wallet_balance(request.user.company_id),
+            destinations=HOTEL_DESTINATIONS,picked=picked,guests=guests,
+            nights=(form.cleaned_data['end']-form.cleaned_data['start']).days if offers else 0))
     return render(request,'portal/service_catalog.html',dict(page_title=SERVICES[kind],kind=kind,
         form=form,groups=groups,offers=offers,connected=connected,count=count,counts=range(1,11 if kind=='hotel' else 21),
         previous_page=previous_page,next_page=next_page,
@@ -460,3 +484,58 @@ def review_queue(request):
         Q(status='confirmed',cancellation_requested_at__isnull=False)).select_related('offer','offer__company')
     page=Paginator(orders.order_by('-created_at'),40).get_page(request.GET.get('page'))
     return render(request,'portal/service_review_queue.html',dict(page_title='Service review',page=page))
+
+
+HOTEL_DESTINATIONS=[
+    {'city':'Paris','country':'FR','label':'France','asset':'paris'},
+    {'city':'Rome','country':'IT','label':'Italy','asset':'rome'},
+    {'city':'Istanbul','country':'TR','label':'Türkiye','asset':'istanbul'},
+    {'city':'London','country':'GB','label':'United Kingdom','asset':'london'},
+]
+
+
+@login_required
+@require_http_methods(['GET'])
+def hotel_destinations(request):
+    customer(request.user)
+    query=request.GET.get('q','').strip()[:100]
+    if len(query)<2:
+        return JsonResponse({'places':[]})
+    try:
+        limit(request.user,'hotel-destinations',240)
+        places=providers.hotel_cities(query)
+        results=[dict(city=p['name'],country=p['country'],label=p['country_name'],
+            choice=signing.dumps({'id':p['id'],'name':p['name'],'country':p['country']},salt='hotel-city')) for p in places[:8]]
+        return JsonResponse({'places':results})
+    except QUOTE_ERRORS:
+        return JsonResponse({'error':'Suggestions are unavailable. Try again or enter a city and country.'},status=503)
+
+
+@login_required
+@require_http_methods(['GET'])
+def hotel_photo(request, token):
+    from urllib.parse import urlsplit
+    from django.core.cache import cache
+    customer(request.user)
+    try:
+        data=signing.loads(token,salt='hotel-photo',max_age=86400)
+        if data['company']!=str(request.user.company_id):
+            raise Http404
+        hotel_id=int(data['hotel'])
+        key=f'catalog-hotel-photo:{hotel_id}'
+        result=cache.get(key)
+        if result is None:
+            gallery=providers.call('irix','GET',f'/api/mapping/v1/hotels/{hotel_id}/images',timeout=(3,6))
+            result=''
+            for image in (gallery.get('_embedded') or {}).get('gallery',[]):
+                candidate=image.get('url','')
+                url=urlsplit(candidate)
+                if url.scheme=='https' and url.netloc=='www.ebookingcenter.com' and url.path.startswith('/tbs/reseller/assets/'):
+                    result=candidate
+                    break
+            cache.set(key,result,3600 if result else 120)
+        if result:
+            return redirect(result)
+    except (signing.BadSignature,) + QUOTE_ERRORS:
+        pass
+    raise Http404

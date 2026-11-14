@@ -39,6 +39,7 @@ class Dates(forms.Form):
 
 
 class HotelSearch(Dates):
+    city_choice = forms.CharField(max_length=512,required=False,widget=forms.HiddenInput)
     city = forms.CharField(max_length=100, label='City', widget=forms.TextInput(attrs={'placeholder':'e.g. Istanbul'}))
     nationality = forms.ChoiceField(choices=COUNTRIES, label='Lead guest nationality')
     landmark = forms.CharField(max_length=120, required=False, label='Near a landmark (optional)')
@@ -55,12 +56,16 @@ class HotelSearch(Dates):
     def __init__(self, *args, count=1, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['destination'].label='Hotel country'
+        self.fields['destination'].choices=[('', 'Choose a country')]+COUNTRIES
+        self.fields['nationality'].choices=[('', 'Choose nationality')]+COUNTRIES
+        self.fields['nationality'].widget.attrs['data-native-select']=''
         self.fields['start'].label='Check-in'
         self.fields['end'].label='Check-out'
+        self.fields['start'].widget.attrs['min']=timezone.localdate().isoformat()
         self.fields['board'].required=self.fields['refundability'].required=self.fields['sort'].required=False
         self.fields['radius'].help_text='Leave blank to search within 1 km of the landmark.'
         for i in range(count):
-            self.fields[f'adults_{i}'] = forms.IntegerField(min_value=1,max_value=9,initial=1,label='Adults')
+            self.fields[f'adults_{i}'] = forms.IntegerField(min_value=1,max_value=9,initial=2,label='Adults')
             self.fields[f'ages_{i}'] = forms.CharField(required=False,max_length=24,label='Children’s ages at check-in',
                 widget=forms.TextInput(attrs={'placeholder':'e.g. 4, 9'}),
                 help_text='Optional. Separate ages with commas. Use 0 for a baby under one.')

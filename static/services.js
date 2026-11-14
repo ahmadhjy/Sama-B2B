@@ -13,7 +13,7 @@
   showCoverage();
 
   for (const select of form.querySelectorAll('select')) {
-    if (select.options.length < 25) continue;
+    if (select.options.length < 25 || select.hasAttribute('data-native-select')) continue;
     const all = [...select.options];
     const search = document.createElement('input');
     search.type = 'search';

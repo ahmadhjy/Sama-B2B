@@ -197,3 +197,40 @@ class ManualServicesTests(TestCase):
         self.assertEqual(self.client.post(url,payload).status_code,302)
         self.assertEqual(credits.wallet_balance(self.company.pk),Decimal('87.50'))
         self.assertContains(self.client.post(url,payload),'cannot be reconciled')
+
+    @patch('portal.providers.hotels')
+    @patch('portal.providers.hotel_cities')
+    def test_hotel_suggestions_bind_search_to_the_selected_city(self,cities,hotels):
+        cities.return_value=[
+            {'id':17,'name':'Paris','country':'FR','country_name':'France','exact':True},
+            {'id':55,'name':'Paris','country':'US','country_name':'United States','exact':True},
+        ]
+        hotels.return_value=[]
+        self.signin(self.hr)
+        with override_settings(IRIX_USERNAME='mock',IRIX_PASSWORD='mock'):
+            places=self.client.get(reverse('hotel_destinations'),{'q':'Par'}).json()['places']
+            start=timezone.localdate()+timedelta(days=10)
+            data={'city':'Paris','destination':'US','city_choice':places[1]['choice'],'nationality':'LB',
+                  'start':start.isoformat(),'end':(start+timedelta(days=2)).isoformat(),'count':'1','adults_0':'2'}
+            url=reverse('service_catalog',args=['hotel'])
+            self.assertEqual(self.client.post(url,data).status_code,200)
+            self.assertEqual(hotels.call_args.args[0],55)
+            hotels.reset_mock()
+            self.assertContains(self.client.post(url,dict(data,destination='FR')),'Choose your destination from the suggestions.')
+            hotels.assert_not_called()
+            self.assertEqual(cities.call_count,1)
+        self.signin(self.requester)
+        self.assertEqual(self.client.get(reverse('hotel_destinations'),{'q':'Par'}).status_code,403)
+
+    @patch('portal.providers.call')
+    def test_hotel_photos_are_company_scoped_and_supplier_only(self,call):
+        from django.core import signing
+        self.signin(self.hr)
+        token=signing.dumps({'company':str(self.company.pk),'hotel':7261},salt='hotel-photo')
+        url=reverse('hotel_photo',args=[token])
+        photo='https://www.ebookingcenter.com/tbs/reseller/assets/thumbnail?src=hotel:7261/demo.jpg'
+        call.return_value={'_embedded':{'gallery':[{'url':'https://example.invalid/image.jpg'},{'url':photo}]}}
+        self.assertRedirects(self.client.get(url),photo,fetch_redirect_response=False)
+        self.signin(self.outsider)
+        self.assertEqual(self.client.get(url).status_code,404)
+        call.assert_called_once()
