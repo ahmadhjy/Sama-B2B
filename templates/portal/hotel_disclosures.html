@@ -1,0 +1,10 @@
+{% if disclosures.terms %}<h2>Supplier terms</h2><ul>{% for term in disclosures.terms %}<li>{{ term.text|linebreaksbr }}{% if term.url %} <a href="{{ term.url }}" rel="noopener noreferrer" target="_blank">View supplier terms</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if disclosures.cancellation %}<h2>Cancellation terms</h2><ul>{% for term in disclosures.cancellation %}<li>{{ term.label }}{% if term.date %} from {{ term.date }}{% endif %}{% if term.charge %}: {{ term.charge.value }} {{ term.charge.currency }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if disclosures.taxes %}<h2>Taxes and fees</h2><ul>{% for tax in disclosures.taxes %}<li>{{ tax.name }}: {{ tax.amount }} {{ tax.currency }} {% if tax.isIncluded == True %}(included){% elif tax.isIncluded == False %}(paid separately){% endif %} {{ tax.description }}</li>{% endfor %}</ul>{% endif %}
+{% for item in disclosures.remarks %}<details><summary>{{ item.label }}</summary>
+  {% for line in item.lines %}<p>{{ line|linebreaksbr }}</p>{% endfor %}
+</details>{% endfor %}
+{% if disclosures.nightly_prices %}<details><summary>Price by night</summary><ul>{% for night in disclosures.nightly_prices %}<li>{{ night.date }} · {{ night.price.value|floatformat:2 }} {{ night.price.currency }}</li>{% endfor %}</ul></details>{% endif %}
+{% if disclosures.meals %}<details><summary>Meals by night</summary>
+  {% for room in disclosures.meals %}<ul>{% for night in room.dates %}{% if night.board %}<li>{{ night.date }} · {{ night.board }}</li>{% endif %}{% endfor %}</ul>{% endfor %}
+</details>{% endif %}

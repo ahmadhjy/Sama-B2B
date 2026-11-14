@@ -277,6 +277,7 @@ class ServiceOffer(models.Model):
     credits = models.DecimalField(max_digits=12, decimal_places=2, null=True)
     sandbox = models.BooleanField(default=False)
     payload = EncryptedTextField()
+    search_group = models.UUIDField(null=True, db_index=True, editable=False)
     expires = models.DateTimeField(db_index=True)
 
 

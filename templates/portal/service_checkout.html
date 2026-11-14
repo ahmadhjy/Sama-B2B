@@ -4,14 +4,11 @@
 {% endblock %}
 {% block content %}
 <div class="service-page">
-<div class="page-heading"><div><a class="back-link" href="{% url 'service_catalog' offer.kind %}">← Back to search</a><h1>{{ offer.label }}</h1><p>Review the cost and fulfilment details before confirming.</p></div></div>
+<div class="page-heading"><div>{% if offer.kind == 'hotel' and offer.search_group %}<a class="back-link" href="{% url 'hotel_terms' offer.pk %}">← Back to rate &amp; conditions</a>{% else %}<a class="back-link" href="{% url 'service_catalog' offer.kind %}">← Back to search</a>{% endif %}<h1>{{ offer.label }}</h1><p>Review the cost and fulfilment details before confirming.</p></div></div>
 <div class="service-checkout-grid"><aside class="service-panel service-summary"><h2>Order summary</h2>
 <p><strong>{{ offer.price|floatformat:2 }} {{ offer.currency }}</strong> · {{ offer.credits|floatformat:2 }} credits · {{ balance|floatformat:2 }} credits available</p>
 {% if offer.sandbox %}<p class="alert">This creates a test policy with no valid cover. Use fictional details. Your credit balance is not charged.</p>{% endif %}
-{% if disclosures.terms %}<h2>Supplier terms</h2><ul>{% for term in disclosures.terms %}<li>{{ term.text|linebreaksbr }}{% if term.url %} <a href="{{ term.url }}" rel="noopener noreferrer" target="_blank">View supplier terms</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
-{% if disclosures.cancellation %}<h2>Cancellation terms</h2><ul>{% for term in disclosures.cancellation %}<li>{{ term.type|title }} from {{ term.date }}{% if term.charge %}: {{ term.charge.value }} {{ term.charge.currency }}{% endif %}</li>{% endfor %}</ul>{% endif %}
-{% if disclosures.taxes %}<h2>Taxes and fees</h2><ul>{% for tax in disclosures.taxes %}<li>{{ tax.name }}: {{ tax.amount }} {{ tax.currency }} {% if tax.isIncluded %}(included){% else %}(not included){% endif %} {{ tax.description }}</li>{% endfor %}</ul>{% endif %}
-{% if disclosures.remarks %}<details><summary>Hotel information and restrictions</summary>{% for item in disclosures.remarks %}{% for line in item.list %}<p>{{ line }}</p>{% endfor %}{% endfor %}</details>{% endif %}
+{% include 'portal/hotel_disclosures.html' %}
 </aside><section class="service-panel service-checkout-form"><form method="post" class="service-form section-gap">{% csrf_token %}
   {% if review_token %}<input type="hidden" name="review_token" value="{{ review_token }}">{% endif %}
   {{ form.non_field_errors }}

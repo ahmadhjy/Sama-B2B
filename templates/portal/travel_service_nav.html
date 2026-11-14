@@ -1,0 +1,6 @@
+<nav class="stay-nav" aria-label="Travel services">
+  <a href="{% url 'service_catalog' 'hotel' %}" {% if kind == 'hotel' %}aria-current="page"{% endif %}>Hotels</a>
+  <a href="{% url 'service_catalog' 'esim' %}" {% if kind == 'esim' %}aria-current="page"{% endif %}>eSIM</a>
+  <a href="{% url 'service_catalog' 'insurance' %}" {% if kind == 'insurance' %}aria-current="page"{% endif %}>Travel insurance</a>
+  <a class="stay-credits" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits ↗</a>
+</nav>

@@ -40,14 +40,17 @@ def esim_catalog(criteria):
         else:
             continue
         price = next((bundle[k] for k in fields if bundle.get(k) is not None), None)
-        detail = ' · '.join(str(v) for v in [
-            'Unlimited data' if bundle.get('unlimited') else f"{bundle.get('gprs_limit','')} {bundle.get('data_unit','MB')}",
-            f"{bundle.get('validity','?')} days",
-            'Calls and SMS' if bundle.get('supports_calls_sms') else 'Data only',
-            'Top-up supported' if bundle.get('support_topup') else '',
-        ] if v)
+        facts = {
+            'Data': ('Unlimited' if bundle.get('unlimited') else
+                     f"{bundle['gprs_limit']} {bundle.get('data_unit') or 'MB'}" if bundle.get('gprs_limit') is not None else ''),
+            'Validity': f"{bundle['validity']} days" if bundle.get('validity') else '',
+            'Features': 'Calls and SMS' if bundle.get('supports_calls_sms') else 'Data only',
+            'Top-up': 'Supported' if bundle.get('support_topup') else '',
+        }
+        detail = ' · '.join(value for value in facts.values() if value)
         row = providers.option('esim', bundle.get('bundle_marketing_name') or bundle.get('bundle_name') or code,
-                               detail, price, currency, {'bundle_code': str(code)})
+                               detail, price, currency, {'bundle_code': str(code)},
+                               attributes=[{'label': label, 'value': value} for label, value in facts.items() if value])
         if row:
             offers.append(row)
     return offers, int(data.get('total_bundles_count') or len(offers))
@@ -65,7 +68,7 @@ def hotel_path(ref):
 
 def prebook(ref):
     if not all(ref.get(k) for k in ('results_token','package_token','room_tokens')) or not all(ref['room_tokens']):
-        raise ValidationError('This hotel rate cannot be booked online. Choose another rate.')
+        raise ValidationError('The provider did not supply the information needed to verify this rate. Choose another rate.')
     data = providers.call('irix','POST',hotel_path(ref)+'/availability',
         params={'token':ref['results_token']}, json={'packageToken':ref['package_token'],'roomTokens':ref['room_tokens']})
     package = data.get('package') or {}
@@ -109,13 +112,18 @@ def hotel_credit_supported(data):
     return True
 
 
+def mandatory_extras(data):
+    return any(extra.get('mandatory') for group in data.get('extraServices') or []
+               for extra in group.get('services', []))
+
+
 def prepare(offer, saved):
     row, search = saved['row'], saved['search']
     ref = row['provider_reference']
     if offer.kind == 'hotel':
         data = prebook(ref)
         price = hotel_price(data)
-        if any(extra.get('mandatory') for group in (data.get('extraServices') or []) for extra in group.get('services',[])):
+        if mandatory_extras(data):
             raise ValidationError('This hotel requires a separately priced service. Ask Sama to confirm the full cost.')
         if not hotel_credit_supported(data):
             raise ValidationError('Supplier credit payment is unavailable for this rate. Choose another rate or contact Sama.')

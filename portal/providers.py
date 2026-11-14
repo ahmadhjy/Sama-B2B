@@ -54,12 +54,16 @@ def request(method, url, **kwargs):
         raise ProviderUnavailable('The provider requires a secure connection.')
     try:
         response=requests.request(method,url,timeout=kwargs.pop('timeout',(5,30)),allow_redirects=False,**kwargs)
+        if (method == 'GET' and response.status_code == 400
+                and re.search(r'/api/hotels/v1/search/results/[A-Za-z0-9-]+$', urlparse(url).path)
+                and response.json().get('detail') == 'The requested page (1) exceeds the limit of 0 pages'):
+            return {'hotels': [], 'pages': {'total': 0}}
         response.raise_for_status()
         if not 200 <= response.status_code < 300: raise ValueError()
         data=response.json()
         if not isinstance(data,dict): raise ValueError()
         return data
-    except (requests.RequestException,ValueError,TypeError):
+    except (requests.RequestException,ValueError,TypeError,AttributeError):
         # Never surface supplier bodies: they can contain credentials or personal information.
         raise ProviderUnavailable('The provider could not return offers. Try again or send your request to Sama.') from None
 
@@ -225,7 +229,11 @@ def insurance(country,residence,start,end,births, *, limit=6):
             row=option('insurance',plan.get('print_name') or plan.get('name') or 'Travel insurance',
                 f"{start} to {end} · {len(births)} travellers · {deductible} · Policy conditions apply.",
                 total,plan.get('currency_code'),{'plan_id':plan.get('id'),'price_ids':[p['id'] for p in prices],'deductible':tier},
-                sandbox=insurance_is_test())
+                sandbox=insurance_is_test(), attributes=[
+                    {'label': 'Trip dates', 'value': f"{start.strftime('%d %b %Y')} – {end.strftime('%d %b %Y')}"},
+                    {'label': 'Travellers', 'value': str(len(births))},
+                    {'label': 'Deductible', 'value': 'None' if tier=='0' else deductible.removeprefix('Deductible: ')},
+                ])
             if row: rows.append(row)
     return sorted(rows,key=lambda r:(r['currency'],Decimal(r['price_min'])))[:limit]
 
@@ -274,7 +282,7 @@ def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=(), *, chec
                         attributes.extend([{'label':'Room','value':name},{'label':'Meals','value':meal},
                             {'label':'Cancellation','value':cancellation}])
                         info=r.get('info') if isinstance(r.get('info'),dict) else {}
-                        room_details.append(room_information(dict(info,index=code),name))
+                        room_details.append(dict(room_information(dict(info,index=code),name), meal=meal, cancellation=cancellation))
                 prop=property_map.get(str(hotel.get('index')),{})
                 stars=hotel.get('stars') if hotel.get('stars') is not None else prop.get('stars')
                 if type(stars) is not int or not 1<=stars<=5: stars=None
@@ -302,9 +310,18 @@ def hotels(city_id,nationality,start,end,rooms,criteria=None,exclude=(), *, chec
     if sort=='distance': rows.sort(key=lambda r:(r.get('distance_km',float('inf')),r['currency'],Decimal(r['price_min'])))
     elif sort=='stars': rows.sort(key=lambda r:(-(r.get('stars') or 0),r['currency'],Decimal(r['price_min'])))
     elif sort!='recommended': rows.sort(key=lambda r:(r['currency'],Decimal(r['price_min'])))
-    rows=rows[:60 if checkout else 6]
-    # Fetch descriptions only for the options we actually show. The results
-    # token stays in memory and never enters saved offers or browser responses.
+    if checkout:
+        # Keep a representative rate for every property before filling the remaining slots.
+        first_rates, other_rates = {}, []
+        for row in rows:
+            hotel_id = row['provider_reference']['hotel_index']
+            if hotel_id in first_rates:
+                other_rates.append(row)
+            else:
+                first_rates[hotel_id] = row
+        return HotelOffers([*first_rates.values(), *other_rates][:60], meta)
+    rows=rows[:6]
+    # Enrich the short assistant list in one batch per supplier offer.
     token=(data.get('tokens') or {}).get('results');srk=data.get('srk')
     if token and isinstance(srk,str) and re.fullmatch(r'[A-Za-z0-9-]+',srk):
         groups={}

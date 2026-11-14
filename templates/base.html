@@ -5,17 +5,18 @@
 <div class="workspace-label">{% if request.user.is_sama %}SAMA WORKSPACE{% else %}COMPANY WORKSPACE{% endif %}</div>
 <nav aria-label="Main navigation">
 <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"><span class="nav-icon">▦</span>{% if request.user.is_sama %}Overview{% else %}Home{% endif %}</a>
+{% if can_use_services %}
+
+<a href="{% url 'service_catalog' 'hotel' %}"{% if request.resolver_match.kwargs.kind == 'hotel' or request.resolver_match.url_name == 'hotel_detail' or request.resolver_match.url_name == 'hotel_terms' %} class="active" aria-current="page"{% endif %}><span class="nav-icon">▤</span>Hotels</a>
+<a href="{% url 'service_catalog' 'esim' %}"{% if request.resolver_match.kwargs.kind == 'esim' %} class="active" aria-current="page"{% endif %}><span class="nav-icon">▣</span>eSIM</a>
+<a href="{% url 'service_catalog' 'insurance' %}"{% if request.resolver_match.kwargs.kind == 'insurance' %} class="active" aria-current="page"{% endif %}><span class="nav-icon">♧</span>Travel insurance</a>
+<a href="{% url 'service_wallet' %}"><span class="nav-icon">◎</span>Company credits</a>
+<div class="nav-divider"></div>
+{% endif %}
 {% if can_create %}<a href="{% url 'new_request' %}" class="{% if request.resolver_match.url_name == 'new_request' %}active{% endif %}"><span class="nav-icon">＋</span>New travel request</a>{% endif %}
 {% if request.user.role != 'finance' %}<a href="{% url 'requests' %}" class="{% if 'request' in request.resolver_match.url_name and request.resolver_match.url_name != 'new_request' %}active{% endif %}"><span class="nav-icon">↗</span>{% if request.user.is_sama %}Requests{% elif request.user.role == 'owner' %}Company requests{% else %}My requests{% endif %}</a>{% endif %}
 {% if request.user.company_id %}<a href="{% url 'requests' %}?scope=mine"><span class="nav-icon">◷</span>My personal requests</a>{% endif %}{% if request.user.role == 'owner' or is_ceo %}<a href="{% url 'travel_overview' %}" class="{% if request.resolver_match.url_name == 'travel_overview' %}active{% endif %}"><span class="nav-icon">◎</span>Travel overview</a>{% endif %}
 {% if request.user.role == 'sales' or is_ceo %}<a href="{% url 'queue' %}" class="{% if request.resolver_match.url_name == 'queue' %}active{% endif %}"><span class="nav-icon">≡</span>Request queue</a>{% endif %}
-{% if can_use_services %}
-<div class="nav-divider"></div>
-<a href="{% url 'service_catalog' 'hotel' %}"><span class="nav-icon">▤</span>Hotels</a>
-<a href="{% url 'service_catalog' 'esim' %}"><span class="nav-icon">▣</span>eSIM</a>
-<a href="{% url 'service_catalog' 'insurance' %}"><span class="nav-icon">♧</span>Travel insurance</a>
-<a href="{% url 'service_wallet' %}"><span class="nav-icon">◎</span>Company credits</a>
-{% endif %}
 {% if can_finance %}<a href="{% url 'finance' %}" class="{% if request.resolver_match.url_name == 'finance' %}active{% endif %}"><span class="nav-icon">▤</span>Accounting</a>{% endif %}
 {% if can_team %}<a href="{% url 'team' %}" class="{% if 'team' in request.resolver_match.url_name %}active{% endif %}"><span class="nav-icon">♧</span>{% if request.user.is_sama %}People & access{% else %}Company users{% endif %}</a>{% endif %}
 <a href="{% url 'notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}"><span class="nav-icon">◉</span>Notifications <span class="nav-count" data-unread>{{ unread_count }}</span></a>

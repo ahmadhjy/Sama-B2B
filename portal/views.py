@@ -22,7 +22,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_GET
 from . import workflow
-from . import providers
+from . import providers, service_credits
 from . import concierge
 from . import hotel_search, offer_search, hotel_intake
 from .accounting import AccountingUnavailable, bridge_call, create_company_owner, sync_companies
@@ -72,6 +72,9 @@ def sign_out(request):
 @login_required
 def dashboard(request):
     if ai_requests_coming_soon(request.user):
+        if service_credits.allowed(request.user):
+            return render(request, 'portal/company_home.html', {
+                'page_title': 'Home', 'balance': service_credits.wallet_balance(request.user.company_id)})
         return render(request, 'portal/ai_coming_soon.html', {'page_title': 'Home'})
     qs=visible_requests(request.user)
     counts=dict(qs.values_list('status').annotate(total=Count('pk',distinct=True)))

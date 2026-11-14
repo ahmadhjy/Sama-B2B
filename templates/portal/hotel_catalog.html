@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% load static %}
-{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=2"><link rel="stylesheet" href="{% static 'stays.css' %}?v=2"><script defer src="{% static 'services.js' %}?v=3"></script><script defer src="{% static 'stays.js' %}?v=2"></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=2"><link rel="stylesheet" href="{% static 'stays.css' %}?v=3"><script defer src="{% static 'services.js' %}?v=4"></script><script defer src="{% static 'stays.js' %}?v=2"></script>{% endblock %}
 {% block content %}
 <div class="stays service-page">
-  <nav class="stay-nav" aria-label="Travel services"><a href="{% url 'service_catalog' 'hotel' %}" aria-current="page">Stays</a><a href="{% url 'service_catalog' 'esim' %}">eSIM</a><a href="{% url 'service_catalog' 'insurance' %}">Travel insurance</a><a class="stay-credits" href="{% url 'service_wallet' %}">{{ balance|floatformat:2 }} credits ↗</a></nav>
-  <header class="stay-heading"><span class="eyebrow">SAMA STAYS</span><h1>Find your next stay</h1><p>Compare hotel rooms, meals and cancellation terms in one place.</p></header>
+  {% include 'portal/travel_service_nav.html' with kind='hotel' %}
+  <header class="stay-heading"><div><h1>Find your next stay</h1><p>Compare hotels, explore the rooms and check what’s included.</p></div></header>
   {% if connected %}
   <form method="post" id="stay-search" class="stay-search service-form" data-service-form="hotel" data-destination-url="{% url 'hotel_destinations' %}">
     {% csrf_token %}{{ form.city_choice }}{{ form.non_field_errors }}
@@ -48,14 +48,13 @@
       {% if picked %}<img src="{% get_static_prefix %}places/{{ picked.asset }}.webp" alt="">{% endif %}
       <div><small>Your stay</small><h2>{{ form.city.value }}</h2><p>{{ form.cleaned_data.start|date:'j M' }} – {{ form.cleaned_data.end|date:'j M Y' }}</p><p>{{ nights }} night{{ nights|pluralize }} · {{ guests }} guest{{ guests|pluralize }} · {{ count }} room{{ count|pluralize }}</p><a href="#stay-search">Edit trip ↑</a></div>
     </aside>
-    <section><div class="stay-results-heading"><h2>Stays in {{ form.city.value }}</h2><p>{{ offers|length }} available room offer{{ offers|length|pluralize }} shown</p></div>
+    <section><div class="stay-results-heading"><h2>Stays in {{ form.city.value }}</h2><p>{{ offers|length }} propert{{ offers|pluralize:'y,ies' }} shown</p></div>
     {% for item in offers %}<article class="stay-result">
-      <div class="stay-result-photo"><span>Photo unavailable</span>{% if item.photo %}<img src="{% url 'hotel_photo' item.photo %}" alt="{{ item.offer.label }}" loading="lazy" data-property-photo>{% endif %}</div>
-      <div class="stay-result-main"><h3>{{ item.offer.label }}</h3>{% if item.stars %}<span class="stay-stars">{{ item.stars }} ★</span>{% endif %}
+      <a class="stay-result-photo" href="{% url 'hotel_detail' item.offer.pk %}" aria-label="View {{ item.offer.label }}"><span>Photo unavailable</span>{% if item.photo %}<img src="{% url 'hotel_photo' item.photo %}" alt="" loading="lazy" referrerpolicy="no-referrer" data-property-photo>{% endif %}</a>
+      <div class="stay-result-main"><h3><a href="{% url 'hotel_detail' item.offer.pk %}">{{ item.offer.label }}</a></h3>{% if item.stars %}<span class="stay-stars">{{ item.stars }} ★</span>{% endif %}
         {% if item.attributes %}<dl>{% for a in item.attributes %}<div><dt>{{ a.label }}</dt><dd>{{ a.value }}</dd></div>{% endfor %}</dl>{% else %}<p>{{ item.detail }}</p>{% endif %}
-        {% if item.rooms %}<details><summary>Room details</summary>{% for room in item.rooms %}<p>{{ room.name }} · {{ room.size }} {{ room.description }} {{ room.facilities }}</p>{% endfor %}</details>{% endif %}
-        <div class="stay-price"><div><small>Total for {{ nights }} night{{ nights|pluralize }}</small><strong>{{ item.offer.price|floatformat:2 }} <small>{{ item.offer.currency }}</small></strong>{% if item.offer.credits != None %}<span>{{ item.offer.credits|floatformat:2 }} credits</span>{% endif %}</div>
-        {% if item.purchasable %}<a class="button primary" href="{% url 'service_checkout' item.offer.pk %}">Review room →</a>{% else %}<span>Contact Sama to book</span>{% endif %}</div>
+        <div class="stay-price"><div><small>From · {{ nights }} night{{ nights|pluralize }}</small><strong>{{ item.offer.price|floatformat:2 }} <small>{{ item.offer.currency }}</small></strong><span>{{ item.rate_count }} room option{{ item.rate_count|pluralize }}</span></div>
+          <a class="button primary" href="{% url 'hotel_detail' item.offer.pk %}">See rooms &amp; details →</a></div>
       </div>
     </article>{% endfor %}</section>
   </div>

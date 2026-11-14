@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=3"><link rel="stylesheet" href="{% static 'stays.css' %}?v=3">{% endblock %}
+{% block content %}
+<div class="stays service-page property-page">
+  <a class="back-link property-back" href="{% url 'hotel_detail' offer.pk %}#rooms">← Back to rooms</a>
+  <header class="property-heading"><div><p class="property-location">{{ offer.label }}</p><h1>Rate &amp; conditions</h1></div></header>
+  <div class="property-terms">
+    <section class="property-section">
+      {% for room in rooms %}<h2>{{ room.name }}</h2><p>{{ room.meal }} · {{ room.cancellation }}</p>{% endfor %}
+      {% if error %}<p class="service-notice">{{ error }}</p>
+      {% else %}{% include 'portal/hotel_disclosures.html' %}
+        {% if not disclosures.terms and not disclosures.cancellation and not disclosures.taxes and not disclosures.remarks and not disclosures.nightly_prices and not disclosures.meals %}<p>The supplier did not include additional terms for this rate.</p>{% endif %}
+      {% endif %}
+    </section>
+    <aside class="property-section">
+      <h2>Total for the stay</h2>
+      {% if current_price and current_price.value != None %}<p class="property-total">{{ current_price.value|floatformat:2 }} {{ current_price.currency }}</p>
+      {% else %}<p>Search price · {{ offer.price|floatformat:2 }} {{ offer.currency }}</p>{% endif %}
+      {% if reason %}<p>{{ reason }}</p><a class="button secondary" href="mailto:info@hellosama.com?subject={{ offer.label|urlencode }}%20booking">Email Sama about this rate</a>
+      {% elif not error %}<p>{{ offer.credits|floatformat:2 }} company credits</p><a class="button primary property-primary" href="{% url 'service_checkout' offer.pk %}">Continue to booking →</a>{% endif %}
+    </aside>
+  </div>
+</div>
+{% endblock %}

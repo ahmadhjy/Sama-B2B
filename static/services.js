@@ -12,33 +12,6 @@
   coverage.forEach(input => input.addEventListener('change', showCoverage));
   showCoverage();
 
-  for (const select of form.querySelectorAll('select')) {
-    if (select.options.length < 25 || select.hasAttribute('data-native-select')) continue;
-    const all = [...select.options];
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.className = 'service-select-search';
-    search.placeholder = 'Type to find a country or region';
-    search.setAttribute('aria-label', 'Filter ' + (select.labels[0]?.textContent || 'options').replace(/:$/, ''));
-    select.before(search);
-    search.addEventListener('input', () => {
-      const selected = select.value;
-      const term = search.value.trim().toLocaleLowerCase();
-      select.replaceChildren(...all.filter(option => !option.value || option.value === selected ||
-        option.textContent.toLocaleLowerCase().includes(term)));
-      select.value = selected;
-    });
-    search.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        const matches = [...select.options].filter(option => option.value &&
-          option.textContent.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
-        if (matches.length === 1) select.value = matches[0].value;
-        select.focus();
-      }
-    });
-  }
-
   const results = document.querySelector('#service-results');
   if (results && matchMedia('(max-width: 760px)').matches && !location.hash) {
     results.focus({preventScroll:true});

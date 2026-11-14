@@ -52,8 +52,12 @@ class AccessMiddleware:
         if request.user.is_authenticated and not request.path.startswith('/static/'):
             response['Cache-Control'] = 'private, no-store'
         response['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
-        if request.resolver_match and request.resolver_match.url_name=='service_catalog' and request.resolver_match.kwargs.get('kind')=='hotel':
+        match = request.resolver_match
+        if match and (match.url_name == 'hotel_detail' or
+                      (match.url_name == 'service_catalog' and match.kwargs.get('kind') == 'hotel')):
             response['Content-Security-Policy'] = response['Content-Security-Policy'].replace(
-                "img-src 'self' data:;", "img-src 'self' data: https://www.ebookingcenter.com/tbs/reseller/assets/;")
+                "img-src 'self' data:;", "img-src 'self' data: https://www.ebookingcenter.com/tbs/reseller/assets/ https://i.travelapi.com/lodging/;")
+        if match and match.url_name == 'hotel_detail':
+            response['Content-Security-Policy'] += "; frame-src https://www.openstreetmap.org/export/embed.html"
         response['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
         return response

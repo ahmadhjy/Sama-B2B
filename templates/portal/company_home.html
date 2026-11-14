@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'services.css' %}?v=3">{% endblock %}
+{% block content %}
+<div class="service-page travel-home">
+  <header class="home-travel-header">
+    <div><p>{{ request.user.company.name }}</p><h1>Welcome{% if request.user.first_name %}, {{ request.user.first_name }}{% endif %}</h1><p>Choose a travel service to get started.</p></div>
+    <a class="home-credit-card" href="{% url 'service_wallet' %}"><span>Company credits</span><strong>{{ balance|floatformat:2 }}</strong><span>Balance &amp; order history →</span></a>
+  </header>
+  <section aria-labelledby="company-travel-services" class="home-travel-services">
+    <h2 id="company-travel-services">Travel services</h2>
+    <div class="home-service-grid">
+      <article class="home-service home-stays">
+        <div class="home-service-visual"><img src="{% static 'places/paris.webp' %}" alt=""></div>
+        <div><h3>Hotels</h3><p>Find a stay, explore the property and compare room rates.</p><a class="button primary" href="{% url 'service_catalog' 'hotel' %}">Search hotels →</a></div>
+      </article>
+      <article class="home-service service-esim">
+        <div class="home-service-visual">{% include 'portal/service_art.html' with kind='esim' %}</div>
+        <div><h3>eSIM</h3><p>Find a mobile data plan for a country, region or worldwide travel.</p><a class="button primary" href="{% url 'service_catalog' 'esim' %}">Browse plans →</a></div>
+      </article>
+      <article class="home-service service-insurance">
+        <div class="home-service-visual">{% include 'portal/service_art.html' with kind='insurance' %}</div>
+        <div><h3>Travel insurance</h3><p>Compare quotes for your destination, dates and travellers.</p><a class="button primary" href="{% url 'service_catalog' 'insurance' %}">Compare quotes →</a></div>
+      </article>
+    </div>
+    <p class="home-photo-credit">Paris photo by <a href="https://commons.wikimedia.org/wiki/File:Eiffel_tower_from_trocadero.jpg">NonOmnisMoriar</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a></p>
+  </section>
+  <aside class="home-ai-note"><span aria-hidden="true">✦</span><div><h2>Your AI travel assistant is coming soon</h2><p>Plan a trip and get help choosing services in one conversation.</p></div></aside>
+</div>
+{% endblock %}

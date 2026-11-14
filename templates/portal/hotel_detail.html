@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'services.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'stays.css' %}?v=3">
+<script defer src="{% static 'hotel-detail.js' %}"></script>
+{% endblock %}
+{% block content %}
+<div class="stays service-page property-page">
+  {% include 'portal/travel_service_nav.html' with kind='hotel' %}
+  <a class="back-link property-back" href="{% url 'service_catalog' 'hotel' %}{% if offer.search_group %}?results={{ offer.search_group }}#stay-results{% endif %}">← Back to hotel results</a>
+  <header class="property-heading">
+    <div>{% if profile.type or profile.locality %}<p class="property-location">{{ profile.type }}{% if profile.type and profile.locality %} · {% endif %}{{ profile.locality }}</p>{% endif %}
+      <h1>{{ offer.label }}</h1>
+      <div class="property-location">{% if stars %}<span class="stay-stars">{{ stars }} ★</span>{% endif %}
+      {% if profile.address %}<span>{{ profile.address }}</span>{% endif %}
+      {% if profile.map_url %}<a href="{{ profile.map_url }}" rel="noopener noreferrer" target="_blank">View map ↗</a>{% endif %}</div>
+    </div>
+    {% if rates %}<a class="button primary property-primary" href="#rooms">See available rooms ↓</a>{% endif %}
+  </header>
+  <dl class="property-trip">
+    <div><dt>Check-in</dt><dd>{{ dates.0|date:'D, j M Y' }}</dd></div>
+    <div><dt>Check-out</dt><dd>{{ dates.1|date:'D, j M Y' }}</dd></div>
+    <div><dt>Length of stay</dt><dd>{{ nights }} night{{ nights|pluralize }}</dd></div>
+    <div><dt>Guests</dt><dd>{{ count }} room{{ count|pluralize }} · {{ guests }} guest{{ guests|pluralize }}</dd></div>
+  </dl>
+  {% if profile.photos %}
+    <div class="property-gallery{% if profile.photos|length == 1 %} single{% elif profile.photos|length == 2 %} pair{% endif %}" data-photo-group>
+      {% for photo in profile.photos %}<a href="{{ photo.url }}" data-gallery-photo{% if forloop.counter > 3 %} class="property-photo-extra"{% endif %} aria-label="View property photo {{ forloop.counter }}">
+        {% if forloop.counter <= 3 %}<img src="{{ photo.url }}" alt="{{ offer.label }} · Photo {{ forloop.counter }}" referrerpolicy="no-referrer">{% endif %}
+      </a>{% endfor %}
+      <button type="button" class="property-photo-button" data-open-gallery hidden>View {{ profile.photos|length }} photo{{ profile.photos|pluralize }}</button>
+    </div>
+    <p class="property-photo-credit">Property and room photos supplied by IRIX.</p>
+  {% endif %}
+  <nav class="property-sections" aria-label="Hotel information">
+    {% if profile.overview or profile.categories %}<a href="#about">Overview</a>{% endif %}
+    {% if profile.facilities or profile.facilities_text %}<a href="#amenities">Amenities</a>{% endif %}
+    <a href="#rooms">Rooms &amp; rates</a>
+    {% if profile.surroundings or profile.map_url or profile.address or distance %}<a href="#location">Location</a>{% endif %}
+    {% if profile.policies %}<a href="#policies">Property information</a>{% endif %}
+  </nav>
+  {% if profile.overview or profile.categories %}<section class="property-section" id="about">
+    <h2>About the property</h2>
+    {% if profile.overview %}<div class="property-copy">{{ profile.overview|linebreaks }}</div>{% endif %}
+    {% if profile.categories %}<ul class="property-tags">{% for category in profile.categories %}<li>{{ category }}</li>{% endfor %}</ul>{% endif %}
+  </section>{% endif %}
+  {% if profile.facilities or profile.facilities_text %}<section class="property-section" id="amenities">
+    <h2>Hotel amenities</h2>
+    {% if profile.facilities %}<ul class="property-amenities">{% for feature in profile.facilities|slice:':10' %}<li>{{ feature }}</li>{% endfor %}</ul>
+      {% if profile.facilities|length > 10 %}<details class="property-room-details"><summary>More hotel amenities</summary><ul class="property-amenities">{% for feature in profile.facilities|slice:'10:' %}<li>{{ feature }}</li>{% endfor %}</ul></details>{% endif %}
+    {% endif %}
+    {% if profile.facilities_text %}<div class="property-copy">{{ profile.facilities_text|linebreaks }}</div>{% endif %}
+  </section>{% endif %}
+  <section class="property-section" id="rooms">
+    <div class="property-section-heading"><h2>Rooms &amp; rates</h2><span>{{ rates|length }} option{{ rates|pluralize }} for your dates</span></div>
+    {% if profile.rooms_text %}<div class="property-copy">{{ profile.rooms_text|linebreaks }}</div>{% endif %}
+    {% for item in rates %}<article class="property-rate">
+      <div class="property-rate-info">
+        {% for room in item.rooms %}<div class="property-room">
+          <h3>{{ room.name }}</h3>
+          <ul class="property-tags">{% if room.size %}<li>{{ room.size }}</li>{% endif %}{% if room.meal %}<li>{{ room.meal }}</li>{% endif %}{% if room.cancellation %}<li>{{ room.cancellation }}</li>{% endif %}</ul>
+          {% if room.photos %}<div class="property-room-photos" data-photo-group>{% for photo in room.photos %}<a href="{{ photo.url }}" data-gallery-photo aria-label="View {{ room.name }} photo {{ forloop.counter }}"{% if forloop.counter > 2 %} class="property-photo-extra"{% endif %}>{% if forloop.counter <= 2 %}<img src="{{ photo.url }}" loading="lazy" alt="{{ room.name }} · Photo {{ forloop.counter }}" referrerpolicy="no-referrer">{% endif %}</a>{% endfor %}
+            <button type="button" class="button secondary" data-open-gallery hidden>{{ room.photos|length }} photo{{ room.photos|pluralize }}</button></div>{% endif %}
+          {% if room.description or room.facilities %}<details class="property-room-details"><summary>Room features</summary><div class="property-copy">{% if room.description %}{{ room.description|linebreaks }}{% endif %}{% if room.facilities %}{{ room.facilities|linebreaks }}{% endif %}</div></details>{% endif %}
+        </div>{% empty %}<h3>Room package</h3><p>{{ item.detail }}</p>{% endfor %}
+      </div>
+      <div class="property-rate-price">
+        <span>Total for {{ nights }} night{{ nights|pluralize }}</span>
+        <strong>{{ item.offer.price|floatformat:2 }} <small>{{ item.offer.currency }}</small></strong>
+        {% if item.purchasable %}<span>{{ item.offer.credits|floatformat:2 }} credits</span>{% endif %}
+        <a class="button primary property-primary" href="{% url 'hotel_terms' item.offer.pk %}">View rate &amp; conditions →</a>
+      </div>
+    </article>{% endfor %}
+  </section>
+  {% if profile.surroundings or profile.map_url or profile.address or distance %}<section class="property-section" id="location">
+    <h2>Location</h2>
+    {% if profile.address or profile.locality %}<p>{{ profile.address }}{% if profile.address and profile.locality %} · {% endif %}{{ profile.locality }}</p>{% endif %}
+    {% if distance %}<p>{{ distance }}</p>{% endif %}
+    {% if profile.surroundings %}<div class="property-copy">{{ profile.surroundings|linebreaks }}</div>{% endif %}
+    {% if profile.map_embed %}<iframe class="property-map" src="{{ profile.map_embed }}" loading="lazy" title="Map of {{ offer.label }}" referrerpolicy="no-referrer"></iframe>{% endif %}
+    {% if profile.map_url %}<a class="button secondary" href="{{ profile.map_url }}" target="_blank" rel="noopener noreferrer">Open location on OpenStreetMap ↗</a>{% endif %}
+  </section>{% endif %}
+  {% if profile.policies %}<section class="property-section" id="policies"><h2>Property information</h2><div class="property-copy">{{ profile.policies|linebreaks }}</div></section>{% endif %}
+  <dialog class="property-lightbox" aria-labelledby="property-photo-heading">
+    <div><h2 id="property-photo-heading">Photos</h2><button type="button" data-gallery-close aria-label="Close gallery">×</button></div>
+    <img alt="" referrerpolicy="no-referrer">
+    <p data-gallery-error hidden>This photo is unavailable.</p>
+    <div><button type="button" data-gallery-prev>← Previous</button><span data-gallery-count aria-live="polite"></span><button type="button" data-gallery-next>Next →</button></div>
+  </dialog>
+</div>
+{% endblock %}

@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -11,13 +11,13 @@ from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods, require_POST
 
-from . import hotel_search, providers, service_credits as credits, service_forms as forms, service_suppliers as suppliers
+from . import hotel_content, hotel_search, providers, service_credits as credits, service_forms as forms, service_suppliers as suppliers
 from .auth import allow_attempt
 from .models import Company, CreditEntry, ServiceOffer, ServiceOrder
 from .permissions import is_ceo
@@ -89,24 +89,46 @@ def search_rows(kind, data):
                             criteria=filters,checkout=True),query,0
 
 
-def save_offers(user,kind,rows,query):
-    offers=[]
-    expiry = timezone.now()+timedelta(minutes=10)
-    prepared = []
-    for row in rows[:80]:
-        sandbox = kind=='insurance' and providers.insurance_is_test()
-        cost = credits.credits_for(row['price_min'],row['currency'],sandbox)
-        record = ServiceOffer(company_id=user.company_id,actor=user,kind=kind,
-            label=row['label'],price=Decimal(row['price_min']),currency=row['currency'],credits=cost,
-            sandbox=sandbox,expires=expiry,payload=json.dumps({'row':row,'search':query}))
-        prepared.append(record)
-        offers.append(dict(offer=record,detail=row['detail'],attributes=row.get('attributes',[]),
-            rooms=row.get('room_details',[]),photo=signing.dumps(
-                {'hotel':row['provider_reference']['hotel_index'],'company':str(user.company_id)},salt='hotel-photo')
-                if kind=='hotel' and str(row.get('provider_reference',{}).get('hotel_index','')).isdigit() else '',
-            stars=row.get('stars'), purchasable=cost is not None and suppliers.enabled(kind,sandbox)))
-    ServiceOffer.objects.bulk_create(prepared)
+def offer_item(offer, row):
+    return dict(offer=offer, detail=row.get('detail', ''), attributes=row.get('attributes', []),
+                rooms=row.get('room_details', []), stars=row.get('stars'),
+                purchasable=offer.credits is not None and suppliers.enabled(offer.kind, offer.sandbox))
+
+
+def save_offers(user, kind, rows, query):
+    offers = []
+    expiry = timezone.now() + timedelta(minutes=10)
+    group = uuid.uuid4() if kind == 'hotel' else None
+    for rank, row in enumerate(rows[:80]):
+        sandbox = kind == 'insurance' and providers.insurance_is_test()
+        cost = credits.credits_for(row['price_min'], row['currency'], sandbox)
+        record = ServiceOffer(company_id=user.company_id, actor=user, kind=kind,
+            label=row['label'], price=Decimal(row['price_min']), currency=row['currency'], credits=cost,
+            sandbox=sandbox, expires=expiry, search_group=group, payload=json.dumps({'row': row, 'search': dict(query, rank=rank) if group else query}))
+        offers.append(offer_item(record, row))
+    ServiceOffer.objects.bulk_create([item['offer'] for item in offers])
     return offers
+
+
+def hotel_cards(user, offers):
+    properties = {}
+    for item in offers:
+        row = json.loads(item['offer'].payload)['row']
+        hotel_id = row.get('provider_reference', {}).get('hotel_index')
+        key = str(hotel_id) if str(hotel_id).isdigit() else str(item['offer'].pk)
+        card = properties.get(key)
+        if card is None:
+            item['photo'] = signing.dumps({'hotel': hotel_id, 'company': str(user.company_id)}, salt='hotel-photo') if str(hotel_id).isdigit() else ''
+            item['rate_count'] = 1
+            properties[key] = item
+        else:
+            card['rate_count'] += 1
+    return list(properties.values())
+
+
+def saved_hotel_results(user, group):
+    return ServiceOffer.objects.filter(kind='hotel', company_id=user.company_id, actor=user,
+                                       search_group=group, expires__gt=timezone.now())
 
 
 @login_required
@@ -116,7 +138,22 @@ def catalog(request, kind):
     customer(request.user)
     if kind not in SERVICES:
         raise Http404
-    count = count_value((request.POST if request.method=='POST' else request.GET).get('count'), 10 if kind=='hotel' else 20)
+    restored = []
+    if kind == 'hotel' and request.method == 'GET' and request.GET.get('results'):
+        try:
+            group = uuid.UUID(request.GET['results'])
+            restored = sorted(saved_hotel_results(request.user, group), key=lambda offer: json.loads(offer.payload)['search'].get('rank', 0))
+        except ValueError:
+            pass
+        if not restored:
+            messages.info(request, 'These hotel results expired. Search for your stay again.')
+    saved_form = None
+    if restored:
+        saved_form = QueryDict(mutable=True)
+        for key, value in json.loads(restored[0].payload)['search'].get('form', {}).items():
+            saved_form.setlist(key, value)
+    count_data = saved_form if saved_form is not None else (request.POST if request.method == 'POST' else request.GET)
+    count = count_value(count_data.get('count'), 10 if kind == 'hotel' else 20)
     form_class = {'hotel':forms.HotelSearch,'esim':forms.EsimSearch,'insurance':forms.InsuranceSearch}[kind]
     submitted = (request.method=='POST' and 'set_count' not in request.POST) or (kind=='esim' and request.GET.get('browse')=='1')
     data = request.POST if request.method=='POST' and submitted else request.GET if submitted else None
@@ -132,21 +169,28 @@ def catalog(request, kind):
         initial['stars']=request.POST.getlist('stars')
     if kind=='hotel' and request.method=='GET':
         initial={'city':request.GET.get('city','')[:100],'destination':request.GET.get('country','')[:2]}
-    form = form_class(data, initial=initial, **({'count':count} if kind!='esim' else {'regions':region_choices}))
-    offers = []
-    previous_page = next_page = None
+    form = form_class(saved_form if saved_form is not None else data, initial=initial, **({'count':count} if kind!='esim' else {'regions':region_choices}))
+    offers = [offer_item(offer, json.loads(offer.payload)['row']) for offer in restored] if restored and form.is_valid() else []
+    previous_page = next_page = coverage_label = None
     if submitted and connected and form.is_valid():
         try:
             limit(request.user,'search',60)
             if kind=='esim' and request.method=='POST':
                 form.cleaned_data['page']=1
             rows, query, total = search_rows(kind,form.cleaned_data)
+            if kind == 'hotel':
+                query['form'] = {key: request.POST.getlist(key) for key in form.fields}
+                query['form']['count'] = [str(count)]
             offers = save_offers(request.user,kind,rows,query)
             if not offers:
                 messages.info(request,'No matching offers were returned. Try changing the search.')
+            if kind == 'insurance':
+                coverage_label = dict(forms.COUNTRIES).get(form.cleaned_data['destination'])
             if kind=='esim':
                 page=query['page']
-                from django.http import QueryDict
+                coverage_label = {'country': dict(forms.COUNTRIES).get(form.cleaned_data['destination']),
+                                  'region': dict(region_choices).get(form.cleaned_data['region_code']),
+                                  'global': 'Worldwide'}.get(query['bundle_category'])
                 params=QueryDict(mutable=True)
                 for key in ('destination','bundle_category','region_code','sort_by'):
                     params[key]=form.cleaned_data[key]
@@ -165,17 +209,17 @@ def catalog(request, kind):
     elif kind=='insurance':
         groups=[(f'Traveller {i+1}',[form[f'birth_{i}']]) for i in range(count)]
     if kind=='hotel':
-        raw=request.POST if request.method=='POST' else {}
+        raw = saved_form or (request.POST if request.method == 'POST' else {})
         picked=next((place for place in HOTEL_DESTINATIONS if place['city']==raw.get('city') and place['country']==raw.get('destination')),None)
         guests=sum(r['adults']+len(r['childrenAges']) for r in form.cleaned_data.get('rooms',[]) if r['adults']) if offers else 0
         return render(request,'portal/hotel_catalog.html',dict(page_title='Hotels',form=form,groups=groups,
-            offers=offers,connected=connected,count=count,counts=range(1,11),balance=credits.wallet_balance(request.user.company_id),
+            offers=hotel_cards(request.user, offers),connected=connected,count=count,counts=range(1,11),balance=credits.wallet_balance(request.user.company_id),
             destinations=HOTEL_DESTINATIONS,picked=picked,guests=guests,
             nights=(form.cleaned_data['end']-form.cleaned_data['start']).days if offers else 0))
     return render(request,'portal/service_catalog.html',dict(page_title=SERVICES[kind],kind=kind,
-        form=form,groups=groups,offers=offers,connected=connected,count=count,counts=range(1,11 if kind=='hotel' else 21),
+        form=form,groups=groups,offers=offers,connected=connected,count=count,counts=range(1,21),coverage_label=coverage_label,
         previous_page=previous_page,next_page=next_page,
-        balance=credits.wallet_balance(request.user.company_id),sandbox=kind=='insurance' and providers.insurance_is_test()))
+        balance=credits.wallet_balance(request.user.company_id)))
 
 
 def checked_price(offer, value, currency):
@@ -193,8 +237,30 @@ def display_disclosures(data):
     policy=data.get('cancellationPolicy') or {}
     terms=[{'text':str(t.get('text') or ''),'url': t.get('url') if str(t.get('url')).startswith('https://') else ''}
            for t in data.get('termsAndConditions',[]) or [] if isinstance(t,dict)]
-    return {'terms':terms,'cancellation':policy.get('policies',[]),
-            'taxes':data.get('taxes'),'remarks':data.get('remarks')}
+    cancellation_labels = {
+        'standard': 'Cancellation charge applies', 'noshow': 'No-show charge',
+        'limit': 'Cancellation closes', 'lock': 'Online cancellation closes',
+    }
+    remarks_titles = {
+        'CATEGORY_CHECKIN_CHECKOUT_NOTES': 'Check-in and check-out',
+        'CATEGORY_CANCELLATION_NOTES': 'Cancellation notes',
+        'CATEGORY_TAXES_FEES': 'Taxes and fees',
+        'CATEGORY_AMENDMENT_POLICIES': 'Changes to the booking',
+        'CATEGORY_SPECIAL_REQUIREMENTS': 'Special requirements',
+        'CATEGORY_ESSENTIAL_INFORMATION': 'Important information',
+    }
+    cancellation = [dict(item, label=cancellation_labels.get(item.get('type'), 'Cancellation condition'))
+                    for item in policy.get('policies', []) if isinstance(item, dict)]
+    remarks = []
+    for item in data.get('remarks') or []:
+        if not isinstance(item, dict):
+            continue
+        title = remarks_titles.get(item.get('code') or item.get('group'), 'Supplier notes')
+        lines = [line for raw in item.get('list') or [] if (line := providers.plain(raw, 4000))]
+        if lines:
+            remarks.append({'label': title, 'lines': lines})
+    return {'terms': terms, 'cancellation': cancellation, 'taxes': data.get('taxes'), 'remarks': remarks,
+            'nightly_prices': (data.get('priceBreakdown') or {}).get('packages'), 'meals': data.get('boardBreakdown')}
 
 
 def disclosure_signature(offer, data):
@@ -278,7 +344,7 @@ def checkout(request, offer_id):
         if parts[0]=='traveller':
             groups.setdefault(f'Traveller {int(parts[1])+1}',[]).append(field)
         elif parts[0]=='room':
-            groups.setdefault(f'Room {int(parts[1])+1} · Guest {int(parts[2])+1}',[]).append(field)
+            groups.setdefault(f'Room {int(parts[1])+1} Ãƒâ€šÃ‚Â· Guest {int(parts[2])+1}',[]).append(field)
         elif field.name not in ('accept','test_only'):
             contact.append(field)
     return render(request,'portal/service_checkout.html',dict(page_title='Review purchase',offer=offer,
@@ -489,7 +555,7 @@ def review_queue(request):
 HOTEL_DESTINATIONS=[
     {'city':'Paris','country':'FR','label':'France','asset':'paris'},
     {'city':'Rome','country':'IT','label':'Italy','asset':'rome'},
-    {'city':'Istanbul','country':'TR','label':'Türkiye','asset':'istanbul'},
+    {'city':'Istanbul','country':'TR','label':'TÃƒÆ’Ã‚Â¼rkiye','asset':'istanbul'},
     {'city':'London','country':'GB','label':'United Kingdom','asset':'london'},
 ]
 
@@ -514,28 +580,84 @@ def hotel_destinations(request):
 @login_required
 @require_http_methods(['GET'])
 def hotel_photo(request, token):
-    from urllib.parse import urlsplit
-    from django.core.cache import cache
     customer(request.user)
     try:
-        data=signing.loads(token,salt='hotel-photo',max_age=86400)
-        if data['company']!=str(request.user.company_id):
+        data = signing.loads(token, salt='hotel-photo', max_age=86400)
+        if data['company'] != str(request.user.company_id):
             raise Http404
-        hotel_id=int(data['hotel'])
-        key=f'catalog-hotel-photo:{hotel_id}'
-        result=cache.get(key)
-        if result is None:
-            gallery=providers.call('irix','GET',f'/api/mapping/v1/hotels/{hotel_id}/images',timeout=(3,6))
-            result=''
-            for image in (gallery.get('_embedded') or {}).get('gallery',[]):
-                candidate=image.get('url','')
-                url=urlsplit(candidate)
-                if url.scheme=='https' and url.netloc=='www.ebookingcenter.com' and url.path.startswith('/tbs/reseller/assets/'):
-                    result=candidate
-                    break
-            cache.set(key,result,3600 if result else 120)
-        if result:
-            return redirect(result)
+        images = hotel_content.gallery(int(data['hotel']))
+        if images:
+            return redirect(images[0]['url'])
     except (signing.BadSignature,) + QUOTE_ERRORS:
         pass
     raise Http404
+
+
+def active_hotel_offer(request, offer_id):
+    customer(request.user)
+    return get_object_or_404(ServiceOffer, pk=offer_id, kind='hotel',
+                             company_id=request.user.company_id, actor=request.user)
+
+
+@login_required
+@require_http_methods(['GET'])
+def hotel_detail(request, offer_id):
+    offer = active_hotel_offer(request, offer_id)
+    if offer.expires <= timezone.now():
+        messages.info(request, 'These room prices expired. Search for your stay again.')
+        return redirect('service_catalog', kind='hotel')
+    saved = json.loads(offer.payload)
+    search, row = saved['search'], saved['row']
+    reference = row['provider_reference']
+    if not str(reference.get('hotel_index')).isdigit():
+        raise Http404
+    rates = []
+    siblings = saved_hotel_results(request.user, offer.search_group) if offer.search_group else [offer]
+    for sibling in siblings:
+        data = row if sibling.pk == offer.pk else json.loads(sibling.payload)['row']
+        ref = data['provider_reference']
+        if str(ref.get('hotel_index')) == str(reference['hotel_index']):
+            rates.append(dict(offer_item(sibling, data), reference=ref))
+    rates.sort(key=lambda item: (item['offer'].currency, item['offer'].price, item['offer'].pk))
+    profile = hotel_content.hotel_profile(reference)
+    if not profile['address']:
+        profile['address'] = next((attr['value'] for attr in row.get('attributes', []) if attr['label'] == 'Location'), '')
+    hotel_content.room_content(rates)
+    dates = [date.fromisoformat(search[key]) for key in ('start', 'end')]
+    return render(request, 'portal/hotel_detail.html', dict(
+        page_title=offer.label, offer=offer, profile=profile, rates=rates, dates=dates, stars=row.get('stars'),
+        nights=(dates[1] - dates[0]).days, count=len(search['rooms']),
+        guests=sum(room['adults']+len(room['childrenAges']) for room in search['rooms']),
+        distance=next((attr['value'] for attr in row.get('attributes', []) if attr['label'] == 'Distance'), ''),
+        balance=credits.wallet_balance(request.user.company_id)))
+
+
+@login_required
+@require_http_methods(['GET'])
+def hotel_terms(request, offer_id):
+    offer = active_hotel_offer(request, offer_id)
+    if offer.expires <= timezone.now():
+        messages.info(request, 'This room price expired. Search for your stay again.')
+        return redirect('service_catalog', kind='hotel')
+    row = json.loads(offer.payload)['row']
+    disclosures, reason, error, current_price = {}, '', '', {}
+    try:
+        limit(request.user, 'prebook', 45)
+        current = suppliers.prebook(row['provider_reference'])
+        current_price = suppliers.hotel_price(current)
+        disclosures = display_disclosures(current)
+        if not suppliers.hotel_credit_supported(current):
+            reason = 'The hotel supplier did not make credit payment available for this rate.'
+        elif not suppliers.enabled('hotel'):
+            reason = 'Online hotel checkout is currently unavailable.'
+        elif suppliers.mandatory_extras(current):
+            reason = 'This rate includes a mandatory extra that Sama must price before booking.'
+        elif offer.credits is None:
+            reason = 'A company credit price is unavailable in this currency.'
+        else:
+            checked_price(offer, current_price.get('value'), current_price.get('currency'))
+    except QUOTE_ERRORS as exc:
+        error = error_text(exc)
+    return render(request, 'portal/hotel_terms.html', dict(
+        page_title='Room terms', offer=offer, rooms=row.get('room_details', []),
+        disclosures=disclosures, reason=reason, error=error, current_price=current_price))

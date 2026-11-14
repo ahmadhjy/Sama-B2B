@@ -17,6 +17,17 @@ from . import test_chat_workspace as workspace
 class ProviderParsingTests(SimpleTestCase):
     def setUp(self): cache.clear()
 
+    @patch('portal.providers.requests.request')
+    def test_irix_zero_result_pagination_is_empty_but_other_errors_still_fail(self, request):
+        request.return_value.status_code = 400
+        request.return_value.raise_for_status.side_effect = requests.HTTPError()
+        request.return_value.json.return_value = {'detail': 'The requested page (1) exceeds the limit of 0 pages'}
+        url = 'https://www.ebookingcenter.com/tbs/reseller/api/hotels/v1/search/results/test-search'
+        self.assertEqual(providers.request('GET', url)['hotels'], [])
+        request.return_value.json.return_value = {'detail': 'Invalid credentials'}
+        with self.assertRaises(providers.ProviderUnavailable):
+            providers.request('GET', url)
+
     @patch('portal.providers.mapping')
     @patch('portal.providers.call')
     def test_city_suggestions_return_country_and_prioritize_exact_names(self,call,mapping):

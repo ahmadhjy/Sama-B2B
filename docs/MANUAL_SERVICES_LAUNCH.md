@@ -10,6 +10,14 @@ Hotels, eSIM and travel insurance have independent form-based tabs. The customer
 - A customer may request cancellation. Sama verifies or performs it in the provider portal and records the actual approved refund in credits. Cancellation is not automatic and a request does not void a booking or policy.
 - Non-USD quotes are displayed in their own currency. For checkout, set `SERVICE_CREDIT_USD_RATES` to a JSON map of approved USD-per-unit rates for the applicable currencies. Leave a currency out to prevent checkout in it. USD always uses 1. A changed supplier price or conversion requires a fresh quote.
 
+## Hotel photos, details and rate conditions
+
+- The hotel and room galleries use property-specific photos returned by IRIX. The sample included images hosted by Ebookingcenter and TravelAPI. The photos in the destination cards are separately credited destination photography.
+- Hotel pages use IRIX extended hotel details plus the mapping catalogue for descriptions, amenities, property policies and photos. The room endpoint supplies room descriptions, facilities and photos. The page displays room size when the supplier text includes it. Coordinates power the OpenStreetMap view. Hotel content varies by property.
+- **View rate & conditions** checks current availability and price. It shows the returned cancellation charges, taxes, supplier notes and itemized prices or meals when supplied. It does not place an order or deduct credits.
+- IRIX's documentation describes reviews and nearby points of interest, but the extended responses sampled with this account did not contain structured guest reviews, rating breakdowns or a structured list of nearby attractions and transport. Supplier area descriptions and exact coordinates did come back. Ask IRIX which content products, hotels and account permissions expose the extra fields before promising parity with TBrooms.
+- The portal displays a bounded selection of returned properties and rates. Refine the city, hotel name or landmark to narrow it. The content also depends on the dates and occupancy. Blank supplier sections are omitted.
+
 ## Deployment and supplier commissioning
 
 Run `bash /home/Samatours2026/HelloSama/deploy/update.sh`. The migrations add wallets, credit entries, offers, service orders and the HR role. Keep the worker running to remove expired quotes and scrub their private data.

@@ -234,3 +234,46 @@ class ManualServicesTests(TestCase):
         self.signin(self.outsider)
         self.assertEqual(self.client.get(url).status_code,404)
         call.assert_called_once()
+
+
+    @patch('portal.service_suppliers.prebook')
+    @patch('portal.hotel_content.hotel_profile')
+    @patch('portal.hotel_content.room_content')
+    def test_property_details_are_grouped_and_terms_work_without_supplier_credit(self, rooms, profile, prebook):
+        from .service_views import save_offers
+
+        self.signin(self.hr)
+        search = {'start': '2032-01-12', 'end': '2032-01-15', 'rooms': [{'adults': 2, 'childrenAges': []}]}
+        row = providers.option('hotel', 'Garden Hotel', 'Double room', '180.00', 'USD',
+                               {'hotel_index': 161, 'results_token': 'PRIVATE-TOKEN'})
+        second = dict(row, price_min='210.00')
+        another_hotel = dict(row, label='Other Hotel', provider_reference={'hotel_index': 162})
+        items = save_offers(self.hr, 'hotel', [row, second, another_hotel], search)
+        save_offers(self.hr, 'hotel', [dict(row, price_min='99.99')], search)
+        offer = items[0]['offer']
+        profile.return_value = {'address': '12 Test Street', 'overview': 'Hotel overview',
+                                'photos': [{'url': 'https://i.travelapi.com/lodging/room.jpg'}]}
+        detail = reverse('hotel_detail', args=[offer.pk])
+        terms = reverse('hotel_terms', args=[offer.pk])
+        response = self.client.get(detail)
+        self.assertContains(response, 'Hotel overview')
+        self.assertContains(response, '210.00')
+        self.assertNotContains(response, '99.99')
+        self.assertNotContains(response, 'Other Hotel')
+        self.assertNotContains(response, 'PRIVATE-TOKEN')
+        self.assertIn('https://i.travelapi.com/lodging/', response['Content-Security-Policy'])
+
+        prebook.return_value = {'price': {'selling': {'value': 180, 'currency': 'USD'}}, 'paymentMethods': [],
+                                'taxes': [{'name': 'City tax', 'amount': '4.00', 'currency': 'EUR', 'isIncluded': False}]}
+        result = self.client.get(terms)
+        self.assertContains(result, 'City tax')
+        self.assertContains(result, 'paid separately')
+        self.assertContains(result, 'credit payment available')
+        self.assertNotContains(result, 'Continue to booking')
+        self.assertFalse(ServiceOrder.objects.exists())
+        self.assertFalse(CreditEntry.objects.exists())
+
+        for user in (self.owner, self.outsider):
+            self.signin(user)
+            self.assertEqual(self.client.get(detail).status_code, 404)
+            self.assertEqual(self.client.get(terms).status_code, 404)
